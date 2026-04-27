@@ -90,13 +90,21 @@ export const firestoreService = {
 
   async createUserProfile(userId: string, data: any) {
     const path = `users/${userId}`;
+    const adminEmails = [
+      'ghaznain1122@gmail.com',
+      'mr.ghaznain@gmail.com',
+      'mr.house1122@gmail.com',
+      'lawandknowledgeacademy@gmail.com'
+    ];
+    const isAdmin = data.email && adminEmails.includes(data.email.toLowerCase());
+
     try {
       const userRef = doc(db, path);
       const profile = {
         ...data,
-        role: 'user',
-        plan: 'free',
-        subscriptionStatus: 'none',
+        role: isAdmin ? 'admin' : 'user',
+        plan: isAdmin ? 'pro' : 'free',
+        subscriptionStatus: isAdmin ? 'active' : 'none',
         createdAt: serverTimestamp(),
         lastActive: serverTimestamp(),
         messageCount: 0,

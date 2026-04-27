@@ -1014,6 +1014,25 @@ export default function App() {
           } else {
             // Update last active
             await firestoreService.updateUserProfile(firebaseUser.uid, {});
+            
+            // Check for admin elevation (if email is in list but role is not admin)
+            const adminEmails = [
+              'ghaznain1122@gmail.com',
+              'mr.ghaznain@gmail.com',
+              'mr.house1122@gmail.com',
+              'lawandknowledgeacademy@gmail.com'
+            ];
+            if (firebaseUser.email && adminEmails.includes(firebaseUser.email.toLowerCase()) && profile.role !== 'admin') {
+              console.log("Elevating user to admin based on email list");
+              await firestoreService.updateUserProfile(firebaseUser.uid, { 
+                role: 'admin', 
+                plan: 'pro',
+                subscriptionStatus: 'active'
+              });
+              profile.role = 'admin';
+              profile.plan = 'pro';
+              profile.subscriptionStatus = 'active';
+            }
           }
           
           const userData = {
