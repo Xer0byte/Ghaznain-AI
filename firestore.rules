@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Helpers
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isAdmin() { 
+      return isSignedIn() && request.auth.token.email != null && (
+        request.auth.token.email == 'lawandknowledgeacademy@gmail.com' || 
+        request.auth.token.email == 'mr.house1122@gmail.com' ||
+        request.auth.token.email == 'ghaznain1122@gmail.com' ||
+        request.auth.token.email == 'admin@xer0byte.ai' ||
+        request.auth.token.email == 'xer0byte@gmail.com'
+      ); 
+    }
+    
+    // 2. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+
+      match /conversations/{convId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+        
+        match /messages/{msgId} {
+          allow read, write: if isOwner(userId) || isAdmin();
+        }
+      }
+
+      match /projects/{projectId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /tasks/{taskId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+  }
+}

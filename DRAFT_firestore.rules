@@ -1,0 +1,82 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 0.1 Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+
+    // 1. User Profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['email', 'name']) &&
+               data.email is string && data.email.size() <= 100 &&
+               data.name is string && data.name.size() <= 100;
+      }
+      
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().role == 'user' && 
+                    incoming().plan == 'free' &&
+                    incoming().subscriptionStatus == 'none';
+                    
+      allow update: if isOwner(userId) && (
+        // Action: Update basic profile
+        (incoming().diff(existing()).affectedKeys().hasOnly(['name', 'profilePhoto', 'avatarColor', 'lastActive', 'lastLocation', 'exactLocation'])) ||
+        // Action: Request upgrade
+        (incoming().diff(existing()).affectedKeys().hasOnly(['subscriptionStatus', 'requestedPlan', 'paymentProof', 'paymentPhone', 'paymentMethod']) && 
+         incoming().subscriptionStatus == 'pending')
+      ) || isAdmin();
+      
+      allow delete: if isAdmin();
+
+      // 2. Sub-collections
+      
+      // Conversations
+      match /conversations/{conversationId} {
+        function isValidConversation(data) {
+          return data.userId == userId && 
+                 data.title is string && data.title.size() <= 200;
+        }
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Messages
+      match /conversations/{conversationId}/messages/{messageId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Projects
+      match /projects/{projectId} {
+        allow read, write: if isOwner(userId);
+      }
+      
+      // Tasks
+      match /tasks/{taskId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+  }
+}

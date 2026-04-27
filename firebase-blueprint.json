@@ -1,0 +1,105 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "User account information and preferences",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "avatarColor": { "type": "string" },
+        "profilePhoto": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "plan": { "type": "string", "enum": ["free", "lite", "pro", "business_lite", "business_pro"] },
+        "subscriptionStatus": { "type": "string", "enum": ["none", "pending", "active"] },
+        "requestedPlan": { "type": "string" },
+        "paymentProof": { "type": "string" },
+        "paymentPhone": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "messageCount": { "type": "number" },
+        "lastMessageReset": { "type": "string", "format": "date-time" },
+        "signupLocation": { "type": "object" },
+        "lastLocation": { "type": "object" },
+        "lastActive": { "type": "string", "format": "date-time" },
+        "exactLocation": { "type": "object" },
+        "subscriptionExpiresAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "name"]
+    },
+    "Conversation": {
+      "title": "Chat Conversation",
+      "description": "A thread of messages between user and AI",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "isPinned": { "type": "boolean" },
+        "isPrivate": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId"]
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "An individual message in a conversation",
+      "type": "object",
+      "properties": {
+        "conversationId": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "ai"] },
+        "text": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["conversationId", "userId", "role", "text"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A saved code snippet or document",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "A to-do list item",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Global user profiles"
+    },
+    "/users/{userId}/conversations/{conversationId}": {
+      "schema": "Conversation",
+      "description": "User-specific conversation threads"
+    },
+    "/users/{userId}/conversations/{conversationId}/messages/{messageId}": {
+      "schema": "Message",
+      "description": "Messages within a conversation"
+    },
+    "/users/{userId}/projects/{projectId}": {
+      "schema": "Project",
+      "description": "User-specific projects"
+    },
+    "/users/{userId}/tasks/{taskId}": {
+      "schema": "Task",
+      "description": "User-specific tasks"
+    }
+  }
+}
