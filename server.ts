@@ -41,6 +41,29 @@ app.post("/api/generate", async (req, res) => {
       });
     }
 
+    if (type === "image") {
+      const prompt = messages[0].content;
+      // Use pollinations.ai for free image generation
+      const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+      return res.json({
+        data: [{ url: imageUrl }]
+      });
+    }
+
+    if (type === "music") {
+      // Mock music generation with a high-quality instrumental track
+      return res.json({
+        audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+      });
+    }
+
+    if (type === "video") {
+      // Mock video generation
+      return res.json({
+        videoUrl: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
+      });
+    }
+
     if (type === "transcribe") {
       const transcribeModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
       const result = await transcribeModel.generateContent([
