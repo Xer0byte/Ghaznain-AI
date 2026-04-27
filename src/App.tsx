@@ -1010,10 +1010,19 @@ export default function App() {
         }
       } else {
         console.log("No Firebase user (logged out)");
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('xer0byteUser');
-        localStorage.removeItem('xer0byteToken');
+        // Check if we have a demo user session active
+        const localUserStr = localStorage.getItem('xer0byteUser');
+        const localUser = localUserStr ? JSON.parse(localUserStr) : null;
+        if (localUser && localUser.id.startsWith('demo-user')) {
+          console.log("Maintaining demo user session");
+          setUser(localUser);
+          setToken("demo-session");
+        } else {
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem('xer0byteUser');
+          localStorage.removeItem('xer0byteToken');
+        }
       }
       setIsFetching(false);
     });
@@ -1792,18 +1801,22 @@ The user will provide an instruction. You must return ONLY the full, updated cod
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      setModals(prev => ({ ...prev, userMenu: false, manageAccount: false }));
-      setView('home');
-      setMessages([]);
-      setConversations([]);
-      setCurrentConversationId(null);
-      chatRef.current = null;
-      setUser(null);
-      setToken(null);
     } catch (err: any) {
-      console.error("Logout failed:", err);
-      setAlertModal({ isOpen: true, message: "Failed to sign out. Please try again." });
+      console.error("Firebase signOut failed, forcing clean up:", err);
     }
+    
+    // Always clear local state to ensure 100% lockout
+    setModals(prev => ({ ...prev, userMenu: false, manageAccount: false }));
+    setView('home');
+    setMessages([]);
+    setConversations([]);
+    setCurrentConversationId(null);
+    chatRef.current = null;
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('xer0byteUser');
+    localStorage.removeItem('xer0byteToken');
+    localStorage.removeItem('xer0byteCurrentConversationId');
   };
 
   const [projectForm, setProjectForm] = useState({ name: '', description: '', content: '' });
@@ -4062,7 +4075,35 @@ The user will provide an instruction. You must return ONLY the full, updated cod
                   <a href={window.location.href} target="_blank" rel="noreferrer" className="underline font-bold ml-2 shrink-0">Open Tab</a>
                 </div>
               )}
-              {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">{authError}</div>}
+              {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">
+                {authError}
+                <div className="mt-2 text-xs opacity-80">
+                  <span className="block mb-1">If your Firebase setup is pending, you can use:</span>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const mockUser = {
+                        id: 'demo-user-' + Math.random().toString(36).substr(2, 9),
+                        name: 'Demo User',
+                        email: 'demo@xer0byte.ai',
+                        avatarColor: '#00ff9d',
+                        role: 'user',
+                        plan: 'free',
+                        messageCount: 0,
+                        subscriptionStatus: 'none'
+                      };
+                      setUser(mockUser as any);
+                      setToken("demo-session");
+                      localStorage.setItem('xer0byteUser', JSON.stringify(mockUser));
+                      setModals(prev => ({ ...prev, signIn: false, signUp: false }));
+                      setAuthError(null);
+                    }}
+                    className="underline font-bold hover:text-white"
+                  >
+                    Guest/Demo Access »
+                  </button>
+                </div>
+              </div>}
               
               <form onSubmit={modals.signIn ? handleLogin : handleSignUp} className="space-y-4">
                 {modals.signUp && (

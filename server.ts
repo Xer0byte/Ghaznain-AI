@@ -25,7 +25,12 @@ app.post("/api/generate", async (req, res) => {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
     if (type === "chat") {
-      const chatModel = genAI.getGenerativeModel({ model: model || "gemini-1.5-flash" });
+      let geminiModel = "gemini-1.5-flash";
+      if (model && (model.includes("gpt-4") || model.includes("pro"))) {
+        geminiModel = "gemini-1.5-pro";
+      }
+      
+      const chatModel = genAI.getGenerativeModel({ model: geminiModel });
       const prompt = messages[messages.length - 1].content;
       
       const result = await chatModel.generateContent(prompt);
