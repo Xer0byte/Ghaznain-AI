@@ -792,10 +792,13 @@ export default function App() {
       await signInWithPopup(auth, provider);
       setModals(prev => ({ ...prev, signIn: false, signUp: false }));
     } catch (err: any) {
+      console.error("Google Auth Error Detail:", err);
       if (err.code !== 'auth/popup-closed-by-user') {
         let msg = err.message || 'Google login failed';
-        if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
-          msg = "Firebase Configuration Error: Please ensure Google login is enabled in your Firebase Console and 'localhost' & development URLs are added to 'Authorized Domains'.";
+        if (err.code === 'auth/unauthorized-domain') {
+          msg = "Security Fix Required: You must add this domain to 'Authorized Domains' in your Firebase Console -> Auth -> Settings.";
+        } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
+          msg = "Firebase Config Error: Please verify your API Key and ensure Google Login is enabled in Firebase Console.";
         }
         setAuthError(msg);
       }

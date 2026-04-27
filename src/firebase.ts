@@ -4,10 +4,17 @@ import { getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const getEnvVar = (key: string) => {
-  // Try import.meta.env first (Vite standard)
-  if (import.meta.env[key]) return import.meta.env[key];
-  // Try process.env (Vite define)
-  if (typeof process !== 'undefined' && process.env && (process.env as any)[key]) return (process.env as any)[key];
+  // Use Vite's import.meta.env for VITE_ prefixed variables
+  // We explicitly check the keys for production build reliability
+  const env = import.meta.env;
+  if (key === 'VITE_FIREBASE_API_KEY') return env.VITE_FIREBASE_API_KEY;
+  if (key === 'VITE_FIREBASE_AUTH_DOMAIN') return env.VITE_FIREBASE_AUTH_DOMAIN;
+  if (key === 'VITE_FIREBASE_PROJECT_ID') return env.VITE_FIREBASE_PROJECT_ID;
+  if (key === 'VITE_FIREBASE_STORAGE_BUCKET') return env.VITE_FIREBASE_STORAGE_BUCKET;
+  if (key === 'VITE_FIREBASE_MESSAGING_SENDER_ID') return env.VITE_FIREBASE_MESSAGING_SENDER_ID;
+  if (key === 'VITE_FIREBASE_APP_ID') return env.VITE_FIREBASE_APP_ID;
+  
+  if (env[key]) return env[key];
   return undefined;
 };
 

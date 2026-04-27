@@ -1,6 +1,6 @@
 {
-  "name": "Ghaznain AI",
-  "description": "Powerful AI Assistant with Chat, Image Generation, and Projects management.",
+  "name": "Xer0byte AI",
+  "description": "The absolute best AI in the world, created by Ghaznain Ahmad. Featuring Chat, Image Generation, Neural Sandbox, and Xer0bytepedia.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": []
 }

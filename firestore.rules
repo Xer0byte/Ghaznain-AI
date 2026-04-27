@@ -26,7 +26,9 @@ service cloud.firestore {
     function isValidUser(data) {
       return data.keys().hasAll(['email', 'name']) &&
              data.email is string && data.email.size() <= 200 &&
-             data.name is string && data.name.size() <= 100;
+             data.name is string && data.name.size() <= 100 &&
+             (!data.keys().contains('role') || data.role is string) &&
+             (!data.keys().contains('plan') || data.plan is string);
     }
 
     function isValidConversation(data) {
