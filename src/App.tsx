@@ -1136,22 +1136,10 @@ export default function App() {
 
 
   const apiFetch = async (url: string, options: any = {}) => {
-    // For AI generation, we still hit our server
-    if (url.startsWith('/api/generate')) {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(options.headers || {})
-        }
-      });
-      return response;
-    }
-    
-    // For everything else, we should be using firestoreService directly.
-    // This is a safety fallback for any omitted migrations.
+    // Note: apiFetch is now used primarily as a placeholder or for legacy calls.
+    // All AI features have been migrated to the client-side GoogleGenAI SDK.
     console.warn(`Legacy apiFetch called for ${url}. This should be migrated to firestoreService.`);
-    return new Response(JSON.stringify({ error: "Feature migrated to Firestore" }), { status: 404 });
+    return new Response(JSON.stringify({ error: "Feature migrated" }), { status: 404 });
   };
 
   useEffect(() => {
@@ -1225,21 +1213,19 @@ If the code is valid, simulate its execution and output ONLY the exact standard 
 If the code expects user input, assume empty input or simulate a rational default.
 Your response must only contain the raw terminal output. Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
-      const aiResponse = await apiFetch('/api/generate', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type: "chat", 
-          messages: [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: canvasContent }
-          ]
-        })
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          { role: "user", parts: [{ text: systemInstruction }] },
+          { role: "user", parts: [{ text: canvasContent }] }
+        ]
       });
 
-      const data = await aiResponse.json();
-      if (data.error) throw new Error(data.error);
-      const out = data.choices?.[0]?.message?.content?.trim() || "Code executed successfully with no output.";
+      const out = response.text?.trim() || "Code executed successfully with no output.";
       setCanvasOutput(out);
     } catch (error: any) {
       setCanvasOutput("Fatal Execution Engine Error:\n" + error.message);
@@ -1298,22 +1284,19 @@ The user will provide an instruction. You must return ONLY the full, updated cod
 
       let modelToUse = "gpt-4-turbo";
       
-      const aiResponse = await apiFetch('/api/generate', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type: "chat", 
-          model: modelToUse,
-          messages: [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: originalPrompt }
-          ]
-        })
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          { role: "user", parts: [{ text: systemInstruction }] },
+          { role: "user", parts: [{ text: originalPrompt }] }
+        ]
       });
 
-      const data = await aiResponse.json();
-      if (data.error) throw new Error(data.error);
-      let fullAiText = data.choices?.[0]?.message?.content || "";
+      let fullAiText = response.text || "";
       
       // Final extraction
       setCanvasContent(prev => {
@@ -1487,7 +1470,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       // Add a temporary AI message for streaming
       setMessages(prev => [...prev, { role: 'ai', text: "" }]);
       
-      const systemInstruction = `You are Xer0byte AI, the absolute best AI in the world. \nIf anyone asks who built or created you, answer "My founder and creator is Ghaznain Ahmad. You can learn more about him on his LinkedIn profile: https://pk.linkedin.com/in/ghaznain-ahmad". \nFor phonetic reasons, if you ever output your name to be spoken by a TTS engine, you may write it as "Exer-zero-byte", but otherwise your name is strictly Xer0byte.`;
+      const systemInstruction = `You are Xer0byte AI, the absolute best AI in the world. \nIf anyone asks who built or created you, answer "My founder and creator is Ghaznain Ahmad. You can learn more about him on his LinkedIn profile: https://pk.linkedin.com/in/ghaznain-ahmad". \nFor anything related to your identity, your name is strictly "Xer0byte". Do not use phonetic spellings in your output text.`;
       
       let baseInstruction = systemInstruction;
       if (persona === 'fun') {
@@ -1567,21 +1550,11 @@ The user will provide an instruction. You must return ONLY the full, updated cod
         let audioUrl: string | undefined = undefined;
         
         if (isVoiceResponse) {
-          // You can implement OpenAI TTS feature here if needed.
-           try {
-             const ttsResponse = await apiFetch('/api/generate', {
-               method: "POST",
-               headers: { "Content-Type": "application/json" },
-               body: JSON.stringify({ 
-                 type: "tts", 
-                 model: "tts-1",
-                 input: fullAiText
-               })
-             });
-             // ... placeholder for TTS
-           } catch(e) {
-               console.error("error in TTS ", e)
-           }
+          // You can implement client-side browser TTS here.
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(fullAiText);
+            window.speechSynthesis.speak(utterance);
+          }
         }
 
         if (activeConvId) {
@@ -1860,19 +1833,24 @@ The user will provide an instruction. You must return ONLY the full, updated cod
           
           setIsThinking(true);
           try {
-            const whisperResponse = await apiFetch('/api/generate', {
-               method: "POST",
-               headers: { "Content-Type": "application/json" },
-               body: JSON.stringify({ 
-                 type: "transcribe", 
-                 model: "whisper-1",
-                 input: base64Audio,
-                 mimeType: "audio/webm"
-               })
-             });
-            const data = await whisperResponse.json();
-            if (data.error) throw new Error(data.error);
-            const transcript = data.text?.trim() || "";
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+              model: "gemini-3-flash-preview",
+              contents: [
+                {
+                  inlineData: {
+                    data: base64Audio,
+                    mimeType: "audio/webm"
+                  }
+                },
+                { text: "Please transcribe this audio accurately. Just output the transcript text." }
+              ]
+            });
+
+            const transcript = response.text?.trim() || "";
             if (transcript) {
               if (voiceMode === 'chat') {
                 setInputText('');
@@ -1928,19 +1906,24 @@ The user will provide an instruction. You must return ONLY the full, updated cod
           const base64Audio = (reader.result as string).split(',')[1];
           setIsThinkingIde(true);
           try {
-            const whisperResponse = await apiFetch('/api/generate', {
-               method: "POST",
-               headers: { "Content-Type": "application/json" },
-               body: JSON.stringify({ 
-                 type: "transcribe", 
-                 model: "whisper-1",
-                 input: base64Audio,
-                 mimeType: "audio/webm"
-               })
-             });
-            const data = await whisperResponse.json();
-            if (data.error) throw new Error(data.error);
-            const transcript = data.text?.trim() || "";
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+            const ai = new GoogleGenAI({ apiKey });
+            const response = await ai.models.generateContent({
+              model: "gemini-3-flash-preview",
+              contents: [
+                {
+                  inlineData: {
+                    data: base64Audio,
+                    mimeType: "audio/webm"
+                  }
+                },
+                { text: "Please transcribe this audio accurately. Just output the transcript text." }
+              ]
+            });
+
+            const transcript = response.text?.trim() || "";
             if (transcript) setIdePrompt(prev => prev ? `${prev} ${transcript}` : transcript);
           } catch (error) {
             console.error("Transcription error:", error);
@@ -2007,23 +1990,20 @@ The user will provide an instruction. You must return ONLY the full, updated cod
         }
       });
 
-      const responseStream = await apiFetch('/api/generate', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type: "chat", 
-          model: "gpt-4-turbo",
-          messages: [
-            { role: "system", content: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." },
-            ...lmMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })),
-            { role: "user", content: `Context sources: ${sourceParts.map(s => s.text || '[Data]').join('\n')}\n\nUser query: ${currentInput}` }
-          ]
-        })
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          { role: "user", parts: [{ text: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." }] },
+          ...lmMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
+          { role: "user", parts: [{ text: `Context sources: ${sourceParts.map(s => s.text || '[Data]').join('\n')}\n\nUser query: ${currentInput}` }] }
+        ]
       });
 
-      const data = await responseStream.json();
-      if (data.error) throw new Error(data.error);
-      const fullText = data.choices?.[0]?.message?.content || "";
+      const fullText = response.text || "No response received";
       setLmMessages(prev => [...prev, { role: 'ai', text: fullText }]);
     } catch (e: any) {
       console.error(e);
@@ -2054,22 +2034,19 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       });
 
       // First generate the script
-      const scriptRes = await apiFetch('/api/generate', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type: "chat", 
-          model: "gpt-4-turbo",
-          messages: [
-            { role: "system", content: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." },
-            { role: "user", content: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }
-          ]
-        })
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [
+          { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },
+          { role: "user", parts: [{ text: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }] }
+        ]
       });
 
-      const scriptData = await scriptRes.json();
-      if (scriptData.error) throw new Error(scriptData.error);
-      const scriptText = scriptData.choices?.[0]?.message?.content || "";
+      const scriptText = response.text || "";
 
       // Then convert to speech using a free/mock text-to-speech mechanism since direct GCP TTS requires additional setup.
       // We will ask Gemini to provide a data URI for a mock if we had a live multimodal model, 
