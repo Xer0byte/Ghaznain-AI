@@ -6,7 +6,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
 import { firestoreService } from './services/firestoreService';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 
 import VoiceAI from './components/VoiceAI';
 import CursorTrailCanvas from './components/CursorTrailCanvas';
@@ -185,7 +185,7 @@ const CustomConfirm = ({ message, onConfirm, onCancel, theme }: { message: strin
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
     <div className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl ${theme === 'dark' ? 'bg-[#1e1e1e] text-white' : 'bg-white text-black'}`}>
       <h3 className="text-lg font-bold mb-4">Confirm Action</h3>
-      <p className="mb-6 opacity-80">{message}</p>
+      <p className="mb-6 opacity-80 whitespace-pre-wrap">{message}</p>
       <div className="flex justify-end gap-3">
         <button onClick={onCancel} className={`px-4 py-2 rounded-xl border transition-colors font-medium ${theme === 'dark' ? 'border-[#444] hover:bg-[#333]' : 'border-[#ccc] hover:bg-[#eee]'}`}>Cancel</button>
         <button onClick={() => { onConfirm(); onCancel(); }} className="px-4 py-2 rounded-xl bg-red-600 text-white hover:bg-red-700 transition-colors font-medium">Confirm</button>
@@ -968,33 +968,42 @@ export default function App() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setIsFetching(true);
       if (firebaseUser) {
         console.log("Firebase user detected:", firebaseUser.email);
-        // Fetch or create user profile in Firestore
-        let profile = await firestoreService.getUserProfile(firebaseUser.uid);
-        if (!profile) {
-          profile = await firestoreService.createUserProfile(firebaseUser.uid, {
-            name: firebaseUser.displayName || 'User',
-            email: firebaseUser.email,
-            profilePhoto: firebaseUser.photoURL,
-          });
+        try {
+          // Fetch or create user profile in Firestore
+          let profile = await firestoreService.getUserProfile(firebaseUser.uid);
+          if (!profile) {
+            profile = await firestoreService.createUserProfile(firebaseUser.uid, {
+              name: firebaseUser.displayName || 'User',
+              email: firebaseUser.email,
+              profilePhoto: firebaseUser.photoURL,
+              avatarColor: "#" + Math.floor(Math.random()*16777215).toString(16)
+            });
+          } else {
+            // Update last active
+            await firestoreService.updateUserProfile(firebaseUser.uid, {});
+          }
+          
+          const userData = {
+            id: firebaseUser.uid,
+            name: profile.name,
+            email: profile.email,
+            avatarColor: profile.avatarColor || "#" + Math.floor(Math.random()*16777215).toString(16),
+            profilePhoto: profile.profilePhoto,
+            role: profile.role || 'user',
+            plan: profile.plan || 'free',
+            messageCount: profile.messageCount || 0,
+            subscriptionStatus: profile.subscriptionStatus || 'none'
+          };
+          
+          setUser(userData as any);
+          setToken("firebase-session"); 
+          localStorage.setItem('xer0byteUser', JSON.stringify(userData));
+        } catch (err) {
+          console.error("Error during profile sync:", err);
         }
-        
-        const userData = {
-          id: firebaseUser.uid,
-          name: profile.name,
-          email: profile.email,
-          avatarColor: profile.avatarColor,
-          profilePhoto: profile.profilePhoto,
-          role: profile.role,
-          plan: profile.plan,
-          messageCount: profile.messageCount,
-          subscriptionStatus: profile.subscriptionStatus
-        };
-        
-        setUser(userData as any);
-        setToken("firebase-session"); 
-        localStorage.setItem('xer0byteUser', JSON.stringify(userData));
       } else {
         console.log("No Firebase user (logged out)");
         setUser(null);
@@ -1002,6 +1011,7 @@ export default function App() {
         localStorage.removeItem('xer0byteUser');
         localStorage.removeItem('xer0byteToken');
       }
+      setIsFetching(false);
     });
 
     return () => unsubscribe();
@@ -1091,47 +1101,6 @@ export default function App() {
     }
   }, [messages, isThinking, settings.autoScroll]);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Fetch or create user profile in Firestore
-        let profile = await firestoreService.getUserProfile(firebaseUser.uid);
-        if (!profile) {
-          profile = await firestoreService.createUserProfile(firebaseUser.uid, {
-            name: firebaseUser.displayName || 'User',
-            email: firebaseUser.email,
-            profilePhoto: firebaseUser.photoURL,
-          });
-        } else {
-          // Sync some UI state from profile
-          firestoreService.updateUserProfile(firebaseUser.uid, {}); // Just update lastActive
-        }
-        
-        const userData = {
-          id: firebaseUser.uid,
-          name: profile.name,
-          email: profile.email,
-          avatarColor: profile.avatarColor,
-          profilePhoto: profile.profilePhoto,
-          role: profile.role,
-          plan: profile.plan,
-          messageCount: profile.messageCount,
-          subscriptionStatus: profile.subscriptionStatus
-        };
-        
-        setUser(userData as any);
-        setToken("firebase-session"); // Placeholder to keep legacy code happy
-        localStorage.setItem('xer0byteUser', JSON.stringify(userData));
-      } else {
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('xer0byteUser');
-        localStorage.removeItem('xer0byteToken');
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
 
   const apiFetch = async (url: string, options: any = {}) => {
     // For AI generation, we still hit our server
@@ -1783,16 +1752,46 @@ The user will provide an instruction. You must return ONLY the full, updated cod
     }
   };
 
-  const mockLogout = async () => {
+  const handleResetPassword = async () => {
+    if (!user?.email) return;
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      setAlertModal({ isOpen: true, message: `Password reset email sent to ${user.email}. Please check your inbox.` });
+    } catch (error: any) {
+      setAlertModal({ isOpen: true, message: error.message || "Failed to send reset email." });
+    }
+  };
+
+  const handleUpdateName = async () => {
+    if (!user) return;
+    const newName = prompt("Enter your new name:", user.name);
+    if (newName && newName !== user.name) {
+      try {
+        await firestoreService.updateUserProfile(user.id, { name: newName });
+        if (auth.currentUser) await updateProfile(auth.currentUser, { displayName: newName });
+        setUser(prev => prev ? { ...prev, name: newName } : null);
+        setAlertModal({ isOpen: true, message: "Name updated successfully!" });
+      } catch (error: any) {
+        setAlertModal({ isOpen: true, message: "Failed to update name." });
+      }
+    }
+  };
+
+  const handleLogout = async () => {
     try {
       await signOut(auth);
-    } catch {}
-    setModals(prev => ({ ...prev, userMenu: false, manageAccount: false }));
-    setView('home');
-    setMessages([]);
-    setConversations([]);
-    setCurrentConversationId(null);
-    chatRef.current = null;
+      setModals(prev => ({ ...prev, userMenu: false, manageAccount: false }));
+      setView('home');
+      setMessages([]);
+      setConversations([]);
+      setCurrentConversationId(null);
+      chatRef.current = null;
+      setUser(null);
+      setToken(null);
+    } catch (err: any) {
+      console.error("Logout failed:", err);
+      setAlertModal({ isOpen: true, message: "Failed to sign out. Please try again." });
+    }
   };
 
   const [projectForm, setProjectForm] = useState({ name: '', description: '', content: '' });
@@ -2406,7 +2405,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
                   <div onClick={() => { setModals({...modals, userMenu: false, upgradePro: true}); }} className={`px-4 py-2 cursor-pointer hover:bg-black/10 font-medium ${theme === 'dark' ? 'hover:bg-white/10 text-[#00ff9d]' : 'text-[#006633]'}`}>Upgrade to Pro</div>
                 )}
                 {user && (
-                  <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={mockLogout}>Sign Out</div>
+                  <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={handleLogout}>Sign Out</div>
                 )}
               </div>
               </>
@@ -4045,7 +4044,13 @@ The user will provide an instruction. You must return ONLY the full, updated cod
               }} className="hover:opacity-70 p-1"><X size={24} /></button>
             </div>
             <div className="p-4 md:p-6">
-              {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm">{authError}</div>}
+              {window.location.hostname.includes('run.app') && (
+                <div className={`mb-4 p-3 rounded-lg text-xs flex items-center justify-between ${theme === 'dark' ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
+                  <span>Having trouble signing in? Try opening in a new tab.</span>
+                  <a href={window.location.href} target="_blank" rel="noreferrer" className="underline font-bold ml-2 shrink-0">Open Tab</a>
+                </div>
+              )}
+              {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">{authError}</div>}
               
               <form onSubmit={modals.signIn ? handleLogin : handleSignUp} className="space-y-4">
                 {modals.signUp && (
@@ -4133,7 +4138,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             <div className="p-4 md:p-6">
               <div className="flex items-center gap-5 mb-8">
                 {user?.profilePhoto ? (
-                  <img src={user.profilePhoto} alt={user.name} className="w-16 h-16 md:w-20 md:h-20 rounded-full object-cover shrink-0 border border-white/10" />
+                  <img src={user.profilePhoto} alt={user?.name || 'User'} className="w-16 h-16 md:w-20 md:h-20 rounded-full object-cover shrink-0 border border-white/10" />
                 ) : (
                   <div className="w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center text-2xl md:text-3xl font-bold text-white shrink-0" style={{ background: user ? user.avatarColor : '#555' }}>
                     {user ? user.name.charAt(0) : 'U'}
@@ -4153,19 +4158,19 @@ The user will provide an instruction. You must return ONLY the full, updated cod
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Update Name</span>
-                  <button className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
+                  <button onClick={handleUpdateName} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Update Email</span>
-                  <button className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
+                  <button onClick={() => setAlertModal({isOpen: true, message: "For security, please contact support to change your email."})} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Change Password</span>
-                  <button className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Reset</button>
+                  <button onClick={handleResetPassword} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Reset</button>
                 </div>
                 <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 mt-4 gap-3 border-t ${theme === 'dark' ? 'border-[#444]' : 'border-[#ddd]'}`}>
                   <span className="text-sm md:text-base">Sign out from all devices</span>
-                  <button onClick={mockLogout} className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[#ff4444]/20 text-[#ff4444] hover:bg-[#ff4444]/30 text-sm font-medium">Sign out everywhere</button>
+                  <button onClick={handleLogout} className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[#ff4444]/20 text-[#ff4444] hover:bg-[#ff4444]/30 text-sm font-medium">Sign out everywhere</button>
                 </div>
               </div>
             </div>
