@@ -1,11 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Global Helpers
+    // --- 1. Global Helpers ---
     function isSignedIn() { return request.auth != null; }
     function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
     function isAdmin() { 
-      return isSignedIn() && request.auth.token.email != null && (
+      return isSignedIn() && request.auth.token.email_verified == true && (
         request.auth.token.email == 'lawandknowledgeacademy@gmail.com' || 
         request.auth.token.email == 'mr.house1122@gmail.com' ||
         request.auth.token.email == 'ghaznain1122@gmail.com' ||
@@ -14,23 +14,56 @@ service cloud.firestore {
       ); 
     }
     
-    // 2. Default Deny
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function affectedKeys() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // Validation Primitives
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isValidTimestamp(ts) { return ts is timestamp; }
+
+    // Entity Validations
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'name']) &&
+             data.email is string && data.email.size() <= 200 &&
+             data.name is string && data.name.size() <= 100;
+    }
+
+    function isValidConversation(data) {
+      return data.keys().hasAll(['userId', 'title']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.title is string && data.title.size() <= 200;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['userId', 'role', 'text']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.role in ['user', 'ai'] &&
+             data.text is string && data.text.size() <= 10000;
+    }
+
+    // --- 2. Default Deny ---
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // --- 3. Resource Rules ---
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || isAdmin();
-      allow delete: if isAdmin();
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isAdmin() || (isOwner(userId) && !affectedKeys().hasAny(['role', 'plan']));
 
       match /conversations/{convId} {
-        allow read, write: if isOwner(userId) || isAdmin();
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidConversation(incoming());
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
         
         match /messages/{msgId} {
-          allow read, write: if isOwner(userId) || isAdmin();
+          allow read: if isOwner(userId) || isAdmin();
+          allow create: if isOwner(userId) && isValidMessage(incoming());
+          allow delete: if isOwner(userId) || isAdmin();
         }
       }
 
@@ -41,6 +74,20 @@ service cloud.firestore {
       match /tasks/{taskId} {
          allow read, write: if isOwner(userId) || isAdmin();
       }
+
+      match /upgradeRequests/{reqId} {
+         allow read: if isOwner(userId) || isAdmin();
+         allow create: if isOwner(userId);
+         allow update: if isAdmin();
+      }
+    }
+    
+    match /upgradeRequests/{reqId} {
+      allow list: if isAdmin();
+      allow get: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
+      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
     }
   }
 }

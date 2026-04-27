@@ -78,6 +78,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "title"]
+    },
+    "UpgradeRequest": {
+      "title": "Upgrade Request",
+      "description": "User request for plan upgrade",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "plan": { "type": "string" },
+        "paymentProof": { "type": "string" },
+        "paymentPhone": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "plan"]
     }
   },
   "firestore": {
@@ -100,6 +115,14 @@
     "/users/{userId}/tasks/{taskId}": {
       "schema": "Task",
       "description": "User-specific tasks"
+    },
+    "/users/{userId}/upgradeRequests/{requestId}": {
+      "schema": "UpgradeRequest",
+      "description": "User-specific upgrade requests"
+    },
+    "/upgradeRequests/{requestId}": {
+      "schema": "UpgradeRequest",
+      "description": "Global upgrade requests for admin"
     }
   }
 }

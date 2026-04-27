@@ -1,6 +1,6 @@
 {
   "name": "Ghaznain AI",
   "description": "Powerful AI Assistant with Chat, Image Generation, and Projects management.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": []
 }

@@ -253,5 +253,66 @@ export const firestoreService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, path);
     }
+  },
+
+  // Subscriptions / Upgrades
+  async submitUpgradeRequest(userId: string, data: any) {
+    const userPath = `users/${userId}/upgradeRequests`;
+    const globalPath = `upgradeRequests`;
+    try {
+      const payload = {
+        ...data,
+        userId,
+        status: 'pending',
+        createdAt: serverTimestamp()
+      };
+      // Save to user subcollection
+      await addDoc(collection(db, userPath), payload);
+      // Save to global collection for admin convenience
+      await addDoc(collection(db, globalPath), payload);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, userPath);
+    }
+  },
+
+  // Admin Methods (Note: These require appropriate rules)
+  subscribeToAllUsers(callback: (users: any[]) => void) {
+    const path = `users`;
+    return onSnapshot(collection(db, path), (snapshot) => {
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(users);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  subscribeToAllUpgradeRequests(callback: (requests: any[]) => void) {
+    const path = `upgradeRequests`;
+    const q = query(collection(db, path), where('status', '==', 'pending'), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(requests);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async handleSubscriptionAdmin(userId: string, requestId: string, action: 'approve' | 'reject', plan: string) {
+    const userPath = `users/${userId}`;
+    const requestPath = `upgradeRequests/${requestId}`;
+    try {
+      const batch = writeBatch(db);
+      const userRef = doc(db, userPath);
+      const requestRef = doc(db, requestPath);
+      
+      if (action === 'approve') {
+        batch.update(userRef, { plan, subscriptionStatus: 'active' });
+      }
+      
+      batch.update(requestRef, { status: action });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, requestPath);
+    }
   }
 };
