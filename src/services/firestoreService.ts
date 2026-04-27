@@ -2,6 +2,7 @@ import {
   collection, 
   doc, 
   getDoc, 
+  getDocFromServer,
   getDocs, 
   setDoc, 
   addDoc, 
@@ -57,10 +58,33 @@ export const firestoreService = {
   async getUserProfile(userId: string) {
     const path = `users/${userId}`;
     try {
-      const userDoc = await getDoc(doc(db, path));
+      // Use getDocFromServer to ensure we are actually connected
+      const userDoc = await getDocFromServer(doc(db, path));
       return userDoc.exists() ? userDoc.data() : null;
-    } catch (error) {
-      handleFirestoreError(error, OperationType.GET, path);
+    } catch (error: any) {
+      // If server fetch fails, try normal getDoc as fallback (might use cache)
+      console.warn("Server fetch failed, trying generic getDoc:", error.message);
+      try {
+        const userDoc = await getDoc(doc(db, path));
+        return userDoc.exists() ? userDoc.data() : null;
+      } catch (innerError) {
+        handleFirestoreError(innerError, OperationType.GET, path);
+      }
+    }
+  },
+
+  async testConnection() {
+    try {
+      await getDocFromServer(doc(db, 'test', 'connection'));
+      return true;
+    } catch (error: any) {
+      if (error.message && error.message.includes('offline')) {
+        console.error("Firestore test connection: Client is offline.");
+        return false;
+      }
+      // Permission denied is also a sign of being "online" but just not authorized for this specific path
+      if (error.code === 'permission-denied') return true;
+      return false;
     }
   },
 

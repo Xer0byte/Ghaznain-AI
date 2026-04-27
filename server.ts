@@ -2,94 +2,14 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import dotenv from "dotenv";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
-
-// AI Proxy Routes
-app.post("/api/generate", async (req, res) => {
-  try {
-    const { type, model, messages, input, mimeType } = req.body;
-
-    if (!GEMINI_API_KEY) {
-      return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
-    }
-
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-
-    if (type === "chat") {
-      let geminiModel = "gemini-1.5-flash";
-      if (model && (model.includes("gpt-4") || model.includes("pro"))) {
-        geminiModel = "gemini-1.5-pro";
-      }
-      
-      const chatModel = genAI.getGenerativeModel({ model: geminiModel });
-      const prompt = messages[messages.length - 1].content;
-      
-      const result = await chatModel.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
-
-      return res.json({
-        choices: [{
-          message: {
-            content: text
-          }
-        }]
-      });
-    }
-
-    if (type === "image") {
-      const prompt = messages[0].content;
-      // Use pollinations.ai for free image generation
-      const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(prompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
-      return res.json({
-        data: [{ url: imageUrl }]
-      });
-    }
-
-    if (type === "music") {
-      // Mock music generation with a high-quality instrumental track
-      return res.json({
-        audioUrl: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
-      });
-    }
-
-    if (type === "video") {
-      // Mock video generation
-      return res.json({
-        videoUrl: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4"
-      });
-    }
-
-    if (type === "transcribe") {
-      const transcribeModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      const result = await transcribeModel.generateContent([
-        {
-          inlineData: {
-            data: input,
-            mimeType: mimeType || "audio/webm"
-          }
-        },
-        { text: "Please transcribe this audio accurately. Just output the transcript text." }
-      ]);
-      const response = await result.response;
-      return res.json({ text: response.text() });
-    }
-
-    res.status(400).json({ error: "Invalid generation type" });
-  } catch (error: any) {
-    console.error("AI Generation Error:", error);
-    res.status(500).json({ error: error.message || "AI Generation Failed" });
-  }
-});
 
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });

@@ -6,7 +6,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 const getEnvVar = (key: string) => {
   // Use Vite's import.meta.env for VITE_ prefixed variables
   // We explicitly check the keys for production build reliability
-  const env = import.meta.env;
+  const env = (import.meta as any).env;
   if (key === 'VITE_FIREBASE_API_KEY') return env.VITE_FIREBASE_API_KEY;
   if (key === 'VITE_FIREBASE_AUTH_DOMAIN') return env.VITE_FIREBASE_AUTH_DOMAIN;
   if (key === 'VITE_FIREBASE_PROJECT_ID') return env.VITE_FIREBASE_PROJECT_ID;
@@ -30,6 +30,6 @@ const finalConfig = {
 
 const app = initializeApp(finalConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, finalConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 export { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut };
 

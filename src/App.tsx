@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
+import { GoogleGenAI } from "@google/genai";
 import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 
@@ -796,18 +797,19 @@ export default function App() {
       setModals(prev => ({ ...prev, signIn: false, signUp: false }));
     } catch (err: any) {
       console.error("Google Auth Error Detail:", err);
-      if (err.code !== 'auth/popup-closed-by-user') {
+      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
         let msg = err.message || 'Google login failed';
         if (err.code === 'auth/unauthorized-domain') {
           msg = "Security Fix Required: You must add this domain to 'Authorized Domains' in your Firebase Console -> Auth -> Settings.";
         } else if (err.code === 'auth/popup-blocked') {
           msg = "Your browser blocked the login popup. Please click 'Open Tab' above or enable popups for this site.";
-        } else if (err.code === 'auth/cancelled-popup-request') {
-          msg = "Login request was cancelled. Please wait a moment and try again.";
         } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
           msg = "Firebase Config Error: Please verify your API Key and ensure Google Login is enabled in Firebase Console.";
         }
         setAuthError(msg);
+      } else {
+        // Just reset error if it was a simple cancellation
+        setAuthError(null);
       }
     } finally {
       setIsGoogleLoading(false);
@@ -940,6 +942,15 @@ export default function App() {
   const [authError, setAuthError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [firestoreOffline, setFirestoreOffline] = useState(false);
+
+  const retryFirestoreConnection = async () => {
+    setFirestoreOffline(false);
+    const connected = await firestoreService.testConnection();
+    if (!connected) {
+      setFirestoreOffline(true);
+    }
+  };
 
   const getExactLocation = (): Promise<{lat: number, lon: number} | null> => {
     return new Promise((resolve) => {
@@ -991,6 +1002,8 @@ export default function App() {
         try {
           // Fetch or create user profile in Firestore
           let profile = await firestoreService.getUserProfile(firebaseUser.uid);
+          setFirestoreOffline(false);
+          
           if (!profile) {
             profile = await firestoreService.createUserProfile(firebaseUser.uid, {
               name: firebaseUser.displayName || 'User',
@@ -1018,24 +1031,18 @@ export default function App() {
           setUser(userData as any);
           setToken("firebase-session"); 
           localStorage.setItem('xer0byteUser', JSON.stringify(userData));
-        } catch (err) {
+        } catch (err: any) {
           console.error("Error during profile sync:", err);
+          if (err.message && err.message.includes('offline')) {
+            setFirestoreOffline(true);
+          }
         }
       } else {
         console.log("No Firebase user (logged out)");
-        // Check if we have a demo user session active
-        const localUserStr = localStorage.getItem('xer0byteUser');
-        const localUser = localUserStr ? JSON.parse(localUserStr) : null;
-        if (localUser && localUser.id.startsWith('demo-user')) {
-          console.log("Maintaining demo user session");
-          setUser(localUser);
-          setToken("demo-session");
-        } else {
-          setUser(null);
-          setToken(null);
-          localStorage.removeItem('xer0byteUser');
-          localStorage.removeItem('xer0byteToken');
-        }
+        setUser(null);
+        setToken(null);
+        localStorage.removeItem('xer0byteUser');
+        localStorage.removeItem('xer0byteToken');
       }
       setIsFetching(false);
     });
@@ -1464,11 +1471,11 @@ The user will provide an instruction. You must return ONLY the full, updated cod
         parts: [{ text: msg.text }]
       }));
 
-      const parts: any[] = [];
-      if (text) parts.push({ text });
+      const inputParts: any[] = [];
+      if (text) inputParts.push({ text });
       if (currentFiles.length > 0) {
         currentFiles.forEach(file => {
-          parts.push({
+          inputParts.push({
             inlineData: {
               data: file.data.split(',')[1] || file.data, // Ensure clean base64
               mimeType: file.mimeType
@@ -1491,39 +1498,22 @@ The user will provide an instruction. You must return ONLY the full, updated cod
         baseInstruction += "\n\nPERSONA: You are in 'Standard' mode. Be helpful, clear, and comprehensive.";
       }
 
-      // Convert format for OpenAI endpoint
-      const openaiHistory = messages.map((msg: any) => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.text
-      }));
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured in AI Studio Secrets.");
 
-      // Add actual input message
-      openaiHistory.push({
-         role: 'user',
-         content: text || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : "")
+      const ai = new GoogleGenAI({ apiKey });
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
+
+      const response = await ai.models.generateContent({
+        model: geminiModel,
+        contents: [
+          { role: 'user', parts: [{ text: baseInstruction }] },
+          ...chatHistory,
+          { role: 'user', parts: inputParts }
+        ]
       });
 
-      let modelToUseStr = "gpt-4-turbo";
-      if (selectedModel === 'fast') {
-        modelToUseStr = "gpt-3.5-turbo";
-      }
-
-      const aiResponse = await apiFetch('/api/generate', {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          type: "chat", 
-          model: modelToUseStr,
-          messages: [
-            { role: "system", content: baseInstruction },
-            ...openaiHistory
-          ]
-        })
-      });
-
-      const data = await aiResponse.json();
-      if (data.error) throw new Error(data.error);
-      const fullAiText = data.choices?.[0]?.message?.content || "";
+      const fullAiText = response.text || "No response received";
       // Final update to ensure the last chunk is rendered
       setMessages(prev => {
         const newMsgs = [...prev];
@@ -1551,19 +1541,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
           ? `${imagePrompt}, high quality, detailed, professional photography, cinematic lighting, 8k resolution, xer0byte style`
           : imagePrompt;
 
-        const imgResponse = await apiFetch('/api/generate', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            type: "image", 
-            model: "dall-e-3",
-            messages: [{ role: "user", content: finalPrompt }]
-          })
-        });
-
-        const imgData = await imgResponse.json();
-        if (imgData.error) throw new Error(imgData.error);
-        const imageUrl = imgData?.data?.[0]?.url;
+        const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
 
         if (imageUrl) {
           const finalAiText = remainingText ? remainingText : `Here is the image you requested: "${imagePrompt}"`;
@@ -1642,33 +1620,13 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       ? `${prompt}, high quality, detailed, professional photography, cinematic lighting, 8k resolution, xer0byte style`
       : prompt;
 
-    try {
-      const response = await apiFetch('/api/generate', {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            type: "image", 
-            model: "dall-e-3",
-            messages: [{ role: "user", content: finalPrompt }]
-          })
-      });
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-      const imageUrl = data?.data?.[0]?.url;
-      
-      if (imageUrl) {
-        setGeneratedImage(imageUrl);
-        setRecentGenerations(prev => [imageUrl, ...prev].slice(0, 10));
-      } else {
-        setAlertModal({ isOpen: true, message: "Failed to generate image." });
-      }
-    } catch (error) {
-      console.error("Image generation error:", error);
-      setAlertModal({ isOpen: true, message: "Failed to generate image. Please try again." });
-    } finally {
+    const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+    
+    setTimeout(() => {
+      setGeneratedImage(imageUrl);
       setIsGeneratingImage(false);
-    }
+      setRecentGenerations(prev => [imageUrl, ...prev].slice(0, 10));
+    }, 1500);
   };
 
   const handleNewChat = () => {
@@ -2310,6 +2268,24 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
+
+      {firestoreOffline && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[1000] w-[90%] max-w-md p-3 rounded-xl bg-red-600 text-white shadow-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="flex items-center gap-3">
+            <WifiOff size={20} />
+            <div>
+              <p className="text-sm font-bold">Xer0byte is Offline</p>
+              <p className="text-[10px] opacity-80">Cloud features are limited. Check your connection.</p>
+            </div>
+          </div>
+          <button 
+            onClick={retryFirestoreConnection}
+            className="px-3 py-1.5 rounded-lg bg-white text-red-600 text-xs font-bold hover:bg-opacity-90 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Sidebar Overlay for Mobile */}
       {isSidebarOpen && (
@@ -4090,32 +4066,6 @@ The user will provide an instruction. You must return ONLY the full, updated cod
               )}
               {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">
                 {authError}
-                <div className="mt-2 text-xs opacity-80">
-                  <span className="block mb-1">If your Firebase setup is pending, you can use:</span>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      const mockUser = {
-                        id: 'demo-user-' + Math.random().toString(36).substr(2, 9),
-                        name: 'Demo User',
-                        email: 'demo@xer0byte.ai',
-                        avatarColor: '#00ff9d',
-                        role: 'user',
-                        plan: 'free',
-                        messageCount: 0,
-                        subscriptionStatus: 'none'
-                      };
-                      setUser(mockUser as any);
-                      setToken("demo-session");
-                      localStorage.setItem('xer0byteUser', JSON.stringify(mockUser));
-                      setModals(prev => ({ ...prev, signIn: false, signUp: false }));
-                      setAuthError(null);
-                    }}
-                    className="underline font-bold hover:text-white"
-                  >
-                    Guest/Demo Access »
-                  </button>
-                </div>
               </div>}
               
               <form onSubmit={modals.signIn ? handleLogin : handleSignUp} className="space-y-4">
