@@ -14,8 +14,35 @@ function getAiClient() {
   return googleAiClient;
 }
 
-export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-1.5-flash", temp = 0.7) {
+export async function generateContentWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
+  let lastError: any = null;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await ai.models.generateContent(config);
+    } catch (error: any) {
+      lastError = error;
+      const errorMsg = error.message?.toUpperCase() || "";
+      const isRetryable = errorMsg.includes('503') || 
+                         errorMsg.includes('UNAVAILABLE') || 
+                         errorMsg.includes('429') || 
+                         errorMsg.includes('TOO MANY REQUESTS') ||
+                         errorMsg.includes('DEADLINE_EXCEEDED');
+      
+      if (isRetryable && i < maxRetries - 1) {
+        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000; // Exponential backoff with jitter
+        console.warn(`AI model busy or rate limited (Retry ${i + 1}/${maxRetries}). Retrying in ${Math.round(delay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
+export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-3-flash-preview", temp = 0.7) {
   let systemInstruction = "";
   const contents: any[] = [];
   
@@ -39,7 +66,7 @@ export async function generateChat(messages: { role: string; content: string }[]
     }
   }
 
-  const result = await ai.models.generateContent({
+  const result = await generateContentWithRetry({
     model: modelName,
     contents,
     config: {
@@ -52,9 +79,7 @@ export async function generateChat(messages: { role: string; content: string }[]
 }
 
 export async function generateImage(prompt: string) {
-  const ai = getAiClient();
-  
-    const response = await ai.models.generateContent({
+    const response = await generateContentWithRetry({
       model: 'gemini-3.1-flash-image-preview',
       contents: {
         parts: [
@@ -80,14 +105,13 @@ export async function generateImage(prompt: string) {
 }
 
 export async function transcribeAudio(audioBase64: string, mimeType: string) {
-  const ai = getAiClient();
   let base64Data = audioBase64;
   if (base64Data.startsWith('data:')) {
     base64Data = base64Data.split(',')[1] || base64Data;
   }
   
-  const result = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
+  const result = await generateContentWithRetry({
+    model: "gemini-3-flash-preview",
     contents: [
       {
         role: "user",
@@ -106,7 +130,7 @@ export async function generateTTS(text: string) {
   // Using an external API would be better or a free mock, but let's try the safest available
   const ai = getAiClient();
   try {
-    const result = await ai.models.generateContent({
+    const result = await generateContentWithRetry({
       model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `Say: ${text}` }] }],
       config: {

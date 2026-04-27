@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
-import { GoogleGenAI } from "@google/genai";
+import { generateContentWithRetry } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 
@@ -1216,8 +1216,7 @@ Your response must only contain the raw terminal output. Return "Code executed s
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
@@ -1287,8 +1286,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
@@ -1484,10 +1482,9 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured in AI Studio Secrets.");
 
-      const ai = new GoogleGenAI({ apiKey });
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: geminiModel,
         contents: [
           { role: 'user', parts: [{ text: baseInstruction }] },
@@ -1836,8 +1833,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             const apiKey = process.env.GEMINI_API_KEY;
             if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-            const ai = new GoogleGenAI({ apiKey });
-            const response = await ai.models.generateContent({
+            const response = await generateContentWithRetry({
               model: "gemini-3-flash-preview",
               contents: [
                 {
@@ -1909,8 +1905,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             const apiKey = process.env.GEMINI_API_KEY;
             if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-            const ai = new GoogleGenAI({ apiKey });
-            const response = await ai.models.generateContent({
+            const response = await generateContentWithRetry({
               model: "gemini-3-flash-preview",
               contents: [
                 {
@@ -1993,8 +1988,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." }] },
@@ -2037,8 +2031,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },

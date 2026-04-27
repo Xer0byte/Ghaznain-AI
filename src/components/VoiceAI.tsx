@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Mic, MicOff, Volume2, VolumeX, Loader2, Sparkles, AlertCircle } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { generateContentWithRetry } from '../lib/gemini';
 import { firebaseApiFetch } from '../firebaseAdapter';
 
 interface VoiceAIProps {
@@ -116,9 +116,9 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
              const base64Audio = (reader.result as string).split(',')[1];
              setStatus('thinking');
              try {
-               const apiKey = (process.env as any).GEMINI_API_KEY;
-               const ai = new GoogleGenAI({ apiKey });
-               const response = await ai.models.generateContent({
+
+
+               const response = await generateContentWithRetry({
                  model: "gemini-3-flash-preview",
                  contents: [
                    {
@@ -195,10 +195,6 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
     setStatus('thinking');
     
     try {
-      const apiKey = (process.env as any).GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
-      const ai = new GoogleGenAI({ apiKey });
       const personaInstruction = `# Role: 
 You are "Xer0byte Voice Pro," a highly advanced, real-time conversational AI. Your primary interface is Voice-to-Voice.
 
@@ -221,7 +217,7 @@ If asked who built, created, or founded you, you MUST answer: "My founder and cr
 # Personality:
 Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized for seamless voice interaction.`;
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: personaInstruction }] },

@@ -112,7 +112,8 @@ export const firestoreService = {
     const path = `users/${userId}`;
     try {
       const userRef = doc(db, path);
-      await updateDoc(userRef, { ...data, lastActive: serverTimestamp() });
+      // Use setDoc with merge instead of updateDoc to handle cases where doc might not exist yet
+      await setDoc(userRef, { ...data, lastActive: serverTimestamp() }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }
@@ -151,7 +152,8 @@ export const firestoreService = {
   async updateConversation(userId: string, conversationId: string, data: any) {
     const path = `users/${userId}/conversations/${conversationId}`;
     try {
-      await updateDoc(doc(db, path), { ...data, updatedAt: serverTimestamp() });
+      // Use setDoc with merge for robustness against missing docs during rapid updates
+      await setDoc(doc(db, path), { ...data, updatedAt: serverTimestamp() }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }
@@ -264,7 +266,7 @@ export const firestoreService = {
   async updateTask(userId: string, taskId: string, completed: boolean) {
     const path = `users/${userId}/tasks/${taskId}`;
     try {
-      await updateDoc(doc(db, path), { completed });
+      await setDoc(doc(db, path), { completed }, { merge: true });
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, path);
     }
@@ -330,10 +332,10 @@ export const firestoreService = {
       const requestRef = doc(db, requestPath);
       
       if (action === 'approve') {
-        batch.update(userRef, { plan, subscriptionStatus: 'active' });
+        batch.set(userRef, { plan, subscriptionStatus: 'active' }, { merge: true });
       }
       
-      batch.update(requestRef, { status: action });
+      batch.set(requestRef, { status: action }, { merge: true });
       await batch.commit();
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, requestPath);
