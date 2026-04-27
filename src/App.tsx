@@ -793,7 +793,11 @@ export default function App() {
       setModals(prev => ({ ...prev, signIn: false, signUp: false }));
     } catch (err: any) {
       if (err.code !== 'auth/popup-closed-by-user') {
-        setAuthError(err.message || 'Google login failed');
+        let msg = err.message || 'Google login failed';
+        if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
+          msg = "Firebase Configuration Error: Please ensure Google login is enabled in your Firebase Console and 'localhost' & development URLs are added to 'Authorized Domains'.";
+        }
+        setAuthError(msg);
       }
     }
   };
@@ -1736,7 +1740,11 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       setModals(prev => ({ ...prev, signUp: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
-      setAuthError(err.message || 'Signup failed');
+      let msg = err.message || 'Signup failed';
+      if (err.code === 'auth/invalid-credential') {
+        msg = "Invalid Firebase credentials. Please check your API Key and configuration.";
+      }
+      setAuthError(msg);
     }
   };
 
@@ -1748,7 +1756,11 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       setModals(prev => ({ ...prev, signIn: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
-      setAuthError(err.message || 'Login failed');
+      let msg = err.message || 'Login failed';
+      if (err.code === 'auth/invalid-credential') {
+        msg = "Invalid login credentials. Please check your email/password or Firebase configuration.";
+      }
+      setAuthError(msg);
     }
   };
 
