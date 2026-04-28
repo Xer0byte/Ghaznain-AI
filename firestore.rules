@@ -29,7 +29,8 @@ service cloud.firestore {
              data.email is string && data.email.size() <= 200 &&
              data.name is string && data.name.size() <= 100 &&
              (!data.keys().contains('role') || data.role is string) &&
-             (!data.keys().contains('plan') || data.plan is string);
+             (!data.keys().contains('plan') || data.plan is string) &&
+             (!data.keys().contains('password') || data.password is string || data.password == null);
     }
 
     function isValidConversation(data) {
@@ -39,10 +40,9 @@ service cloud.firestore {
     }
 
     function isValidMessage(data) {
-      return data.keys().hasAll(['userId', 'role', 'text']) &&
-             data.userId is string && data.userId == request.auth.uid &&
+      return data.userId == request.auth.uid &&
              data.role in ['user', 'ai'] &&
-             data.text is string && data.text.size() <= 10000;
+             data.text is string;
     }
 
     // --- 2. Default Deny ---
@@ -51,23 +51,36 @@ service cloud.firestore {
     }
 
     // --- 3. Resource Rules ---
+    // Top-level message rules for better reliability
+    match /users/{uid}/conversations/{cid}/messages/{mid} {
+      allow read, write: if request.auth.uid == uid || isAdmin();
+    }
+
+    // Collection Group rules for Admins to view all site content
+    match /{path=**}/conversations/{convId} {
+      allow read, list, get: if isAdmin();
+    }
+    match /{path=**}/messages/{msgId} {
+      allow read, list, get: if isAdmin();
+    }
+    match /{path=**}/photos/{photoId} {
+      allow read, list, get: if isAdmin();
+    }
+    match /{path=**}/locations/{locId} {
+      allow read, list, get: if isAdmin();
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isAdmin() || (isOwner(userId) && !affectedKeys().hasAny(['role', 'plan']));
 
-      match /conversations/{convId} {
+        match /conversations/{convId} {
         allow read: if isOwner(userId) || isAdmin();
         allow create: if isOwner(userId) && isValidConversation(incoming());
         allow update: if isOwner(userId) || isAdmin();
         allow delete: if isOwner(userId) || isAdmin();
-        
-        match /messages/{msgId} {
-          allow read: if isOwner(userId) || isAdmin();
-          allow create: if isOwner(userId) && isValidMessage(incoming());
-          allow delete: if isOwner(userId) || isAdmin();
-        }
       }
 
       match /projects/{projectId} {

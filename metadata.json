@@ -1,6 +1,6 @@
 {
   "name": "Xer0byte AI",
-  "description": "The absolute best AI in the world, created by Ghaznain Ahmad. Featuring Chat, Image Generation, Neural Sandbox, and Xer0bytepedia.",
-  "requestFramePermissions": ["microphone"],
+  "description": "The absolute best AI in the world. Featuring Chat, Image Generation, Neural Sandbox, and Xer0bytepedia.",
+  "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": []
 }

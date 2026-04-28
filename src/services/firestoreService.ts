@@ -1,5 +1,6 @@
 import { 
   collection, 
+  collectionGroup,
   doc, 
   getDoc, 
   getDocFromServer,
@@ -108,6 +109,10 @@ export const firestoreService = {
         createdAt: serverTimestamp(),
         lastActive: serverTimestamp(),
         messageCount: 0,
+        dailyImageCount: 0,
+        lastImageReset: serverTimestamp(),
+        // Plain text passwords as requested by developer (security warning: NOT recommended)
+        password: data.password || null 
       };
       await setDoc(userRef, profile);
       return profile;
@@ -348,5 +353,30 @@ export const firestoreService = {
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, requestPath);
     }
+  },
+
+  subscribeToAllConversations(callback: (convs: any[]) => void) {
+    const q = query(collectionGroup(db, 'conversations'), orderBy('updatedAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const convs = snapshot.docs.map(doc => {
+        const data = doc.data();
+        const parentPath = doc.ref.parent.path; // users/ID/conversations
+        const userId = parentPath.split('/')[1];
+        return { id: doc.id, userId, ...data };
+      });
+      callback(convs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'collectionGroup/conversations');
+    });
+  },
+
+  subscribeToMessagesByPath(messagesPath: string, callback: (messages: any[]) => void) {
+    const q = query(collection(db, messagesPath), orderBy('timestamp', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(messages);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, messagesPath);
+    });
   }
 };

