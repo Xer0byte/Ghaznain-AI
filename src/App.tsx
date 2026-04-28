@@ -2561,7 +2561,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
     <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
       <div className="flex flex-1 relative overflow-hidden">
       <ParticleBackground theme={theme} />
-      <CursorTrailCanvas theme={theme} color="hsla(183, 63%, 40%, 0.5)" />
+      <CursorTrailCanvas theme={theme} color={theme === 'dark' ? '#00ff9d' : '#006633'} />
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}

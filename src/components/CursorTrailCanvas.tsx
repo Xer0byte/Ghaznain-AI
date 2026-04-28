@@ -1,3 +1,5 @@
+import React, { useEffect, useRef } from 'react';
+
 import { CSSProperties, useEffect, useRef } from "react";
 import { cursorTrail } from "../utility/cursor-trail";
 
