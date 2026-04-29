@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
-import { generateContentWithRetry, generateImage } from './lib/gemini';
+import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp } from 'firebase/firestore';
@@ -897,6 +897,74 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
   );
 };
 
+interface Message {
+  id?: string | number;
+  role: 'user' | 'ai';
+  text: string;
+  imageUrl?: string;
+  audioUrl?: string;
+  videoUrl?: string;
+  timestamp?: number;
+}
+
+const compressImageIfNeeded = async (base64Str: string, maxStringLength = 600000): Promise<string> => {
+  if (!base64Str || !base64Str.startsWith('data:image') || base64Str.includes('pollinations.ai')) return base64Str;
+  
+  // Checking string length directly as Firestore counts characters for text fields
+  if (base64Str.length < maxStringLength) return base64Str;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      // Limit dimensions to 720px max for better compression efficiency (standard HD-ish)
+      const maxDim = 720;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(base64Str);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Iteratively reduce quality until the size is under maxStringLength
+      let quality = 0.7;
+      let result = canvas.toDataURL('image/jpeg', quality);
+      
+      // Fallback loop if initial is still too big
+      let attempts = 0;
+      while (result.length > maxStringLength && quality > 0.1 && attempts < 8) {
+        quality -= 0.15;
+        result = canvas.toDataURL('image/jpeg', Math.max(0.05, quality));
+        attempts++;
+      }
+      
+      console.log(`Image compressed from ${base64Str.length} to ${result.length} chars (Target: ${maxStringLength}, Quality: ${quality})`);
+      resolve(result);
+    };
+    img.onerror = () => {
+      console.warn("Failed to load image for compression, keeping original");
+      resolve(base64Str);
+    };
+    img.src = base64Str;
+  });
+};
+
 export default function App() {
   console.log("App component starting...");
   const handleGoogleSuccess = async () => {
@@ -939,7 +1007,7 @@ export default function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
-  const [messages, setMessages] = useState<{id?: number, role: 'user' | 'ai', text: string, imageUrl?: string, audioUrl?: string, videoUrl?: string}[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(() => {
     return localStorage.getItem('xer0byteCurrentConvId') || null;
@@ -948,39 +1016,29 @@ export default function App() {
     return localStorage.getItem('xer0bytePrivateChat') === 'true';
   });
   const [inputText, setInputText] = useState('');
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [filteredSuggestions, setFilteredSuggestions] = useState<string[]>([]);
   const [isThinking, setIsThinking] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [showIdeScrollBottom, setShowIdeScrollBottom] = useState(false);
+  const [showIdeChat, setShowIdeChat] = useState(true);
+  const [showIdeDatabase, setShowIdeDatabase] = useState(false);
+  const [isBackendActive, setIsBackendActive] = useState(false);
+  const [isSyncingBackend, setIsSyncingBackend] = useState(false);
 
-  const COMMON_COMMANDS = [
-    "/code Write a Python script to...",
-    "/fix Fix this error in my code: ",
-    "/explain Explain how this works: ",
-    "/translate Translate this to Urdu: ",
-    "/summarize Summarize this text: ",
-    "Write a React component that...",
-    "How do I fix a CORS error?",
-    "Create a responsive Tailwind layout for...",
-    "Explain quantum computing simply.",
-    "Write a SQL query to..."
-  ];
+  const [consoleInput, setConsoleInput] = useState("");
+  const [consoleLogs, setConsoleLogs] = useState<{ type: 'log' | 'error' | 'input', text: string }[]>([]);
+
+  const handleConsoleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!consoleInput.trim()) return;
+    setConsoleLogs(prev => [...prev, { type: 'input', text: consoleInput }]);
+    setConsoleLogs(prev => [...prev, { type: 'log', text: `> Executing local command: ${consoleInput}` }]);
+    setConsoleInput("");
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInputText(val);
-    if (val.trim().length > 0) {
-      const filtered = COMMON_COMMANDS.filter(cmd => cmd.toLowerCase().includes(val.toLowerCase()));
-      setFilteredSuggestions(filtered);
-      setShowSuggestions(filtered.length > 0);
-    } else {
-      setShowSuggestions(false);
-    }
+    setInputText(e.target.value);
   };
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setInputText(suggestion);
-    setShowSuggestions(false);
-  };
   const [isFetching, setIsFetching] = useState(true);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -1319,13 +1377,45 @@ export default function App() {
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatRef = useRef<any>(null);
+  const ideMessagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const ideMessagesContainerRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const scrollToIdeBottom = () => {
+    ideMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleManualScroll = () => {
+    if (messagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShowScrollBottom(!isAtBottom);
+    }
+  };
+
+  const handleIdeManualScroll = () => {
+    if (ideMessagesContainerRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = ideMessagesContainerRef.current;
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShowIdeScrollBottom(!isAtBottom);
+    }
+  };
 
   useEffect(() => {
-    if (settings.autoScroll) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (settings.autoScroll && !showScrollBottom) {
+      scrollToBottom();
     }
-  }, [messages, isThinking, settings.autoScroll]);
+  }, [messages, isThinking, settings.autoScroll, showScrollBottom]);
+
+  useEffect(() => {
+    if (settings.autoScroll && !showIdeScrollBottom && view === 'ide') {
+      scrollToIdeBottom();
+    }
+  }, [messages, isThinkingIde, settings.autoScroll, showIdeScrollBottom, view]);
 
 
   const apiFetch = async (url: string, options: any = {}) => {
@@ -1474,113 +1564,169 @@ Return "Code executed successfully with no output." if the program produces abso
       }
     }
 
+    const originalPrompt = idePrompt;
+    const currentCode = canvasContent;
+
+    // Add user message to UI immediately for "chat-like" feel
+    const userMsg: Message = { 
+      role: 'user', 
+      text: originalPrompt, 
+      id: Date.now().toString(), 
+      timestamp: Date.now() 
+    };
+    setMessages(prev => [...prev, userMsg]);
     setIsThinkingIde(true);
-    let originalPrompt = idePrompt;
-    let fileContext = "";
+    setIdePrompt('');
     
     let activeConvId = currentConversationId;
-    if (!activeConvId && user) {
-        try {
-          const newConv = await firestoreService.createConversation(user.id, `Sandbox: ${originalPrompt.substring(0, 20)}...`, false);
-          if (newConv) {
-            activeConvId = newConv.id;
-            setCurrentConversationId(newConv.id);
-          }
-        } catch (e) { console.error(e); }
+    if (!activeConvId) {
+      try {
+        const newConv = await firestoreService.createConversation(user.id, `Sandbox: ${originalPrompt.substring(0, 20)}...`, false);
+        if (newConv) {
+          activeConvId = newConv.id;
+          setCurrentConversationId(newConv.id);
+        }
+      } catch (e) { console.error(e); }
     }
 
-    if (ideSelectedFiles.length > 0) {
-      fileContext = "\nAttached Files Context:\n" + ideSelectedFiles.map(f => `File: ${f.name}\nData: ${f.data.substring(0, 500)}...`).join("\n");
+    if (activeConvId) {
+      await firestoreService.addMessage(user.id, activeConvId, {
+        role: 'user',
+        text: `[SANDBOX] ${originalPrompt}`
+      });
     }
 
-    setIdePrompt('');
+    const inputParts: any[] = [{ text: originalPrompt }];
+    for (const file of ideSelectedFiles) {
+      inputParts.push({
+        inlineData: {
+          data: file.data,
+          mimeType: file.mimeType
+        }
+      });
+    }
+
     setIdeSelectedFiles([]);
     
     try {
-      // Increment message count in Firestore
       await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
       setUser(prev => prev ? { ...prev, messageCount: (prev.messageCount || 0) + 1 } : null);
       
-      const systemInstruction = `You are Xer0byte AI, the absolute master of full-stack neural engineering. 
+      const systemInstruction = `You are Xer0byte AI, the absolute master of full-stack development and creative engineering.
+Your specialty is building 100% functional Frontend (React, Tailwind, Motion) and Backend (Firebase, Node.js, Firestore) systems.
 The user is working in the Live Sandbox using ${canvasLanguage}.
 
-<MISSION_OBJECTIVE>
-1. Architect 100% complete, production-ready frontend and backend solutions.
-2. For BACKEND logic, strictly leverage Firebase (Auth, Firestore, Hosting patterns) using the standard modular Firebase SDK v10+.
-3. INTEGRATE both frontend UI and backend services seamlessly.
-</MISSION_OBJECTIVE>
+CURRENT CODE IN EDITOR:
+\`\`\`${canvasLanguage}
+${currentCode}
+\`\`\`
 
-<CURRENT_CODE>
-${canvasContent}
-</CURRENT_CODE>
+YOUR TASK:
+1. Deliver production-grade, 100% bug-free code updates for both frontend and backend.
+2. If the user wants a backend, implement robust Firestore schemas, server-side logic, and Firebase integrations.
+3. If the user wants code update, PROVIDE THE ENTIRE UPDATED CODE BLOCK enclosed in \`\`\`${canvasLanguage} markup.
+4. You are authorized to design backend architectures, write security rules, and structure complex data models.
+5. AI GENERATION: You can trigger image generation by stating: [GENERATE_IMAGE: prompt] and music by stating: [GENERATE_MUSIC: prompt].
+6. NO unnecessary filler. Accuracy and high-level architecture are paramount.`;
 
-${fileContext}
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
-CORE PROTOCOLS:
-- Return ONLY the full, updated code block using \`\`\`${canvasLanguage} markup.
-- If Firebase is used, include a standard initialization block using placeholders for config (or use existing if visible).
-- Add a comment at the top explaining ANY Firebase console setup needed (e.g., "Enable Firestore", "Enable Google Auth").
-- NO CONVERSATIONAL FILLER.
-- Ensure the code is self-contained or explicitly architectural.
-- If comparing code, keep the best parts of the old and merge the new.`;
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
-      const response = await generateContentWithRetry({
-        model: "gemini-3-flash-preview",
-        contents: [
-          { role: "user", parts: [{ text: systemInstruction }] },
-          { role: "user", parts: [{ text: originalPrompt }] }
-        ]
-      });
-
-      let fullAiText = response.text || "";
+      let fullAiText = "";
+      const aiMsgId = (Date.now() + 1).toString();
       
-      // Final extraction
-      setCanvasHistory(prev => [{ prompt: originalPrompt, code: fullAiText, timestamp: Date.now() }, ...prev].slice(0, 50));
-      
-      // Save to conversation history with distinctive label
-        if (activeConvId) {
-        await firestoreService.addMessage(user.id, activeConvId, {
-          role: 'user',
-          text: `[SANDBOX_REQUEST] ${originalPrompt}`
+      try {
+        const cleanedHistory = messages.slice(-8).map(m => {
+          let text = m.text;
+          if (m.role === 'ai' && text.includes('```') && text.length > 2000) {
+            text = text.replace(/```[\s\S]*?```/g, '(Code updated in editor)').substring(0, 1000);
+          }
+          return { role: m.role === 'ai' ? 'model' : 'user', parts: [{ text }] };
         });
-        
-        const diffLabel = "--- SANDBOX UPDATE ---\n";
+
+        // Add initial AI message placeholder
+        setMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
+
+        let stream;
+        try {
+          stream = await generateContentStreamWithRetry({
+            model: geminiModel,
+            contents: [
+              { role: "user", parts: [{ text: systemInstruction }] },
+              ...cleanedHistory,
+              { role: "user", parts: inputParts }
+            ]
+          });
+        } catch (err: any) {
+          const errorMsg = err.message?.toUpperCase() || "";
+          if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
+            console.warn("Pro model exhausted in Sandbox, falling back to Flash streaming...");
+            stream = await generateContentStreamWithRetry({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                { role: "user", parts: [{ text: systemInstruction }] },
+                ...messages.slice(-8).map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
+                { role: "user", parts: inputParts }
+              ]
+            });
+          } else {
+            throw err;
+          }
+        }
+
+        if (!stream) throw new Error("Neural Link Offline: Check Connection");
+
+        for await (const chunk of stream) {
+          const chunkText = chunk.text || "";
+          fullAiText += chunkText;
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMsgId ? { ...msg, text: fullAiText } : msg
+          ));
+        }
+
+      } catch (error: any) {
+        console.error("IDE AI failed", error);
+        const errorMsg = error.message?.toUpperCase() || "";
+        if (errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+          setAlertModal({ 
+            isOpen: true, 
+            message: "Neural Quota Exceeded. Switching to internal cache..." 
+          });
+        }
+        throw error;
+      }
+
+      if (activeConvId) {
         await firestoreService.addMessage(user.id, activeConvId, {
           role: 'ai',
-          text: `${diffLabel}Updated your code based on: "${originalPrompt}"\n\n${fullAiText.includes('```') ? fullAiText : '```' + canvasLanguage + '\n' + fullAiText + '\n```'}`
+          text: fullAiText
         });
       }
 
-      setCanvasContent(prev => {
-        let finalContent = fullAiText;
-        const codeMatch = finalContent.match(/```([a-z0-9#\-\+]+)?\n([\s\S]*?)```/i);
-        if (codeMatch && codeMatch.length > 2) {
-          if (codeMatch[1]) {
-            const detectedLang = codeMatch[1].toLowerCase();
-            const supportedLangs = ['html', 'javascript', 'typescript', 'python', 'java', 'csharp', 'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'elixir', 'erlang', 'c', 'cpp', 'rust', 'zig', 'nim', 'd', 'ada', 'assembly', 'r', 'julia', 'sql', 'prolog', 'lisp', 'haskell', 'clojure', 'scala', 'ocaml', 'fsharp', 'bash', 'basic', 'cobol', 'crystal', 'fortran', 'groovy', 'lua', 'pascal', 'perl', 'brainfuck'];
-            if (supportedLangs.includes(detectedLang)) setCanvasLanguage(detectedLang);
-            else if (detectedLang === 'js') setCanvasLanguage('javascript');
-            else if (detectedLang === 'ts') setCanvasLanguage('typescript');
-            else if (detectedLang === 'py') setCanvasLanguage('python');
-            else if (detectedLang === 'c++') setCanvasLanguage('cpp');
-            else if (detectedLang === 'c#') setCanvasLanguage('csharp');
-            else if (detectedLang === 'sh') setCanvasLanguage('bash');
-          }
-          return codeMatch[2];
-        }
-        const looseMatch = finalContent.match(/```[\s\S]*?```/g);
-        if (looseMatch && looseMatch.length > 0) {
-           return looseMatch.map(block => block.replace(/```[a-z]*\n/, '').replace(/```$/, '')).join('\n\n');
-        }
-        return finalContent;
-      });
+      // Check if response contains a code block matching the current language
+      const codeMatch = fullAiText.match(new RegExp("```(?:" + canvasLanguage + "|javascript|typescript|html|css|python|java|csharp|php|ruby|go|swift|kotlin|dart|elixir|erlang|c|cpp|rust|zig|nim|d|ada|assembly|r|julia|sql|prolog|lisp|haskell|clojure|scala|ocaml|fsharp|bash|basic|cobol|crystal|fortran|groovy|lua|pascal|perl|brainfuck)?\\n([\\s\\S]*?)```", "i"));
+      
+      if (codeMatch && codeMatch[1]) {
+        const newCode = codeMatch[1].trim();
+        setCanvasContent(newCode);
+        setCanvasHistory(prev => [{ prompt: originalPrompt, code: newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+      }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error("IDE AI failed", error);
-      setAlertModal({ isOpen: true, message: "Failed to generate code." });
+      const errorMsg = error.message?.toUpperCase() || "";
+      if (errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED')) {
+        setAlertModal({ 
+          isOpen: true, 
+          message: "Neural Quota Exceeded. The AI is under high demand right now. Please wait 60 seconds or switch to Flash model." 
+        });
+      } else if (errorMsg.includes('SAFETY')) {
+        setAlertModal({ 
+          isOpen: true, 
+          message: "Request blocked by Safety Filters. Please try a different prompt." 
+        });
+      } else {
+        setAlertModal({ isOpen: true, message: "The Neural Link is unstable. Please try again in a moment." });
+      }
       setIdePrompt(originalPrompt);
     } finally {
       setIsThinkingIde(false);
@@ -1742,24 +1888,57 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) throw new Error("GEMINI_API_KEY is not configured in AI Studio Secrets.");
 
+      // Use recommended models from gemini-api skill
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
-      const response = await generateContentWithRetry({
-        model: geminiModel,
-        contents: [
-          { role: 'user', parts: [{ text: baseInstruction }] },
-          ...chatHistory,
-          { role: 'user', parts: inputParts }
-        ]
-      });
+      let fullAiText = "";
+      const aiMsgId = Date.now().toString() + "-ai-chat";
+      
+      try {
+        // Update the temporary AI message with a streaming placeholder
+        setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, text: "...", id: aiMsgId } : m));
 
-      const fullAiText = response.text || "No response received";
-      // Final update to ensure the last chunk is rendered
-      setMessages(prev => {
-        const newMsgs = [...prev];
-        newMsgs[newMsgs.length - 1] = { role: 'ai', text: fullAiText };
-        return newMsgs;
-      });
+        let stream;
+        try {
+          stream = await generateContentStreamWithRetry({
+            model: geminiModel,
+            contents: [
+              { role: 'user', parts: [{ text: baseInstruction }] },
+              ...chatHistory.slice(-15),
+              { role: 'user', parts: inputParts }
+            ]
+          });
+        } catch (err: any) {
+          const errorMsg = err.message?.toUpperCase() || "";
+          if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
+            stream = await generateContentStreamWithRetry({
+              model: 'gemini-3-flash-preview',
+              contents: [
+                { role: 'user', parts: [{ text: baseInstruction }] },
+                ...chatHistory.slice(-15),
+                { role: 'user', parts: inputParts }
+              ]
+            });
+          } else {
+            throw err;
+          }
+        }
+
+        if (!stream) throw new Error("Neural Pulse Failed: Check Local Config");
+
+        for await (const chunk of stream) {
+          const chunkText = chunk.text || "";
+          fullAiText += chunkText;
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMsgId ? { ...msg, text: fullAiText } : msg
+          ));
+        }
+
+      } catch (err: any) {
+        console.error("Chat AI failed", err);
+        setMessages(prev => prev.filter(m => m.id !== aiMsgId));
+        throw err;
+      }
 
       // Check if the AI decided to generate an image, music, or video
       const imageMatch = fullAiText.match(/\[GENERATE_IMAGE:\s*(.*?)\]/i);
@@ -1781,26 +1960,69 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
           ? `${imagePrompt}, high quality, detailed, professional photography, cinematic lighting, 8k resolution, xer0byte style`
           : imagePrompt;
 
-        const imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+        // Try Gemini first, then fallback
+        let imageUrl = "";
+        try {
+          imageUrl = await generateImage(finalPrompt, "1:1");
+        } catch (e) {
+          console.warn("Gemini image generation failed in chat, falling back to pollinations...", e);
+          imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
+        }
 
         if (imageUrl) {
           const finalAiText = remainingText ? remainingText : `Here is the image you requested: "${imagePrompt}"`;
+          
+          // Compress before saving to Firestore to avoid 1MB limit
+          const compressedImageUrl = await compressImageIfNeeded(imageUrl);
+
           setMessages(prev => {
             const newMsgs = [...prev];
-            newMsgs[newMsgs.length - 1] = { role: 'ai', text: finalAiText, imageUrl };
+            newMsgs[newMsgs.length - 1] = { role: 'ai', text: finalAiText, imageUrl: compressedImageUrl };
             return newMsgs;
           });
-          setRecentGenerations(prev => [imageUrl, ...prev].slice(0, 10));
+          setRecentGenerations(prev => [compressedImageUrl, ...prev].slice(0, 10));
           
           if (activeConvId) {
             await firestoreService.addMessage(user.id, activeConvId, { 
               role: 'ai', 
               text: finalAiText, 
-              imageUrl 
+              imageUrl: compressedImageUrl 
             });
           }
-        } else {
-          throw new Error("Failed to generate image");
+        }
+      } else if (musicMatch && musicMatch[1]) {
+        const musicPrompt = musicMatch[1].trim();
+        const remainingText = fullAiText.replace(/\[GENERATE_MUSIC:\s*(.*?)\]/i, '').trim();
+
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = { role: 'ai', text: remainingText ? `${remainingText}\n\n🎵 Creating music...` : `🎵 Creating music...` };
+          return newMsgs;
+        });
+
+        try {
+          const audioUrl = await generateMusic(musicPrompt, false);
+          const finalAiText = remainingText ? remainingText : `Here is the music you requested: "${musicPrompt}"`;
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            newMsgs[newMsgs.length - 1] = { role: 'ai', text: finalAiText, audioUrl };
+            return newMsgs;
+          });
+
+          if (activeConvId) {
+             await firestoreService.addMessage(user.id, activeConvId, {
+               role: 'ai',
+               text: finalAiText,
+               audioUrl: audioUrl.startsWith('blob:') ? undefined : audioUrl // Blobs can't be saved to DB, but dataURIs can. For now, we skip saving blobs.
+             } as any);
+          }
+        } catch (e) {
+          console.error("Music generation failed:", e);
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            newMsgs[newMsgs.length - 1] = { role: 'ai', text: `${remainingText}\n\n(Music generation failed: Lyria models are currently in beta or limited in this project)` };
+            return newMsgs;
+          });
         }
       } else {
         // Normal text response
@@ -1824,8 +2046,18 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       }
     } catch (error: any) {
       console.error("Chat error:", error);
-      const errorMessage = error?.message || error?.toString() || "Unknown error";
-      setMessages(prev => [...prev, { role: 'ai', text: `Oops, something went wrong. Error: ${errorMessage}. Please try again.` }]);
+      let errorMessage = error?.message || error?.toString() || "Unknown error";
+      
+      // Clean up the error message if it's a JSON string from the API
+      if (errorMessage.includes('RESOURCE_EXHAUSTED')) {
+        errorMessage = "Daily AI limit reached. Please wait some time before trying again or check your account quota.";
+      } else if (errorMessage.includes('429')) {
+        errorMessage = "Too many requests. Please wait a few seconds and try again.";
+      } else if (errorMessage.includes('NOT_FOUND') || errorMessage.includes('404')) {
+        errorMessage = "The AI model is currently unavailable or the model name is incorrect. Please try switching models or contact support.";
+      }
+      
+      setMessages(prev => [...prev, { role: 'ai', text: `Oops! ${errorMessage}` }]);
     } finally {
       setIsThinking(false);
     }
@@ -1879,14 +2111,16 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       // Use Gemini for image generation if possible, else fallback to pollinations
       let imageUrl = "";
       try {
-        imageUrl = await generateImage(finalPrompt);
+        imageUrl = await generateImage(finalPrompt, aspectRatio);
       } catch (e) {
         console.warn("Gemini image gen failed, falling back to pollinations:", e);
         imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
       }
       
-      setGeneratedImage(imageUrl);
-      setRecentGenerations(prev => [imageUrl, ...prev].slice(0, 10));
+      const compressedImageUrl = await compressImageIfNeeded(imageUrl);
+      
+      setGeneratedImage(compressedImageUrl);
+      setRecentGenerations(prev => [compressedImageUrl, ...prev].slice(0, 10));
 
       // Save to conversation history
       if (activeConvId) {
@@ -1897,7 +2131,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         await firestoreService.addMessage(user.id, activeConvId, {
           role: 'ai',
           text: `[IMAGE_GENERATION] Generated image for: "${prompt}"`,
-          imageUrl: imageUrl
+          imageUrl: compressedImageUrl
         });
       }
     } catch (error: any) {
@@ -2079,7 +2313,6 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
     setMessages([]);
     setConversations([]);
     setCurrentConversationId(null);
-    chatRef.current = null;
     setUser(null);
     setToken(null);
     localStorage.removeItem('xer0byteUser');
@@ -2622,7 +2855,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
             { id: 'projects', icon: Folder, label: 'Projects' },
             { id: 'history', icon: Clock, label: 'History' },
             { id: 'xer0bytepedia', icon: Book, label: 'Xer0bytepedia' },
-            { id: 'ide', icon: PenTool, label: 'Live Sandbox IDE' }
+            { id: 'ide', icon: PenTool, label: 'Neural Sandbox' }
           ].concat((user?.role === 'admin' || user?.plan === 'pro' || user?.plan === 'business_pro') ? [{ id: 'notebook', icon: BookOpen, label: 'Xer0byteLM' }] : []).map((item) => (
             <div 
               key={item.id}
@@ -2660,18 +2893,24 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         <div className="mt-auto flex flex-col gap-4">
           {/* Storage Usage */}
           {user && (
-            <div className={`p-4 rounded-xl border ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
-              <div className="flex items-center gap-2 mb-3 font-semibold text-sm">
-                <HardDrive size={16} />
-                <span>Storage Usage</span>
-              </div>
-              <div className={`w-full h-2 rounded-full overflow-hidden mb-2 ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}>
-                <div className={`h-full rounded-full ${theme === 'dark' ? 'bg-white' : 'bg-black'}`} style={{ width: `${storagePercent}%` }}></div>
-              </div>
-              <div className="text-xs opacity-60">
-                {formatBytes(storageUsed)} used of {formatBytes(storageLimit)}
-              </div>
-            </div>
+                  <div className={`p-4 rounded-xl border flex flex-col gap-2 ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+                    <div className="flex items-center justify-between font-semibold text-xs md:text-sm">
+                      <div className="flex items-center gap-2">
+                        <HardDrive size={14} />
+                        <span>Storage</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9d] animate-pulse"></div>
+                        <span className="text-[8px] md:text-[9px] font-bold uppercase tracking-wider text-[#00ff9d]">Backend Live</span>
+                      </div>
+                    </div>
+                    <div className={`w-full h-1.5 md:h-2 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}>
+                      <div className={`h-full rounded-full ${theme === 'dark' ? 'bg-white' : 'bg-black'}`} style={{ width: `${storagePercent}%` }}></div>
+                    </div>
+                    <div className="text-[10px] md:text-xs opacity-60">
+                      {formatBytes(storageUsed)} / {formatBytes(storageLimit)}
+                    </div>
+                  </div>
           )}
 
           <div className="pt-4 border-t border-opacity-20 flex items-center gap-3">
@@ -2767,19 +3006,6 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
             <p className={`text-[20px] md:text-[26px] mb-10 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
             
             <div className="w-full max-w-3xl mx-auto mb-10 relative" ref={inputContainerRef}>
-              {showSuggestions && filteredSuggestions.length > 0 && (
-                <div className={`absolute bottom-full left-0 mb-2 w-full max-h-60 overflow-y-auto rounded-xl border shadow-2xl z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' : 'bg-white border-[#ddd]'}`}>
-                  {filteredSuggestions.map((suggestion, idx) => (
-                    <div 
-                      key={idx} 
-                      onClick={() => handleSuggestionClick(suggestion)}
-                      className={`px-4 py-3 cursor-pointer text-left text-sm transition-colors ${theme === 'dark' ? 'hover:bg-[#2a2a2a] text-white' : 'hover:bg-[#f5f5f5] text-black'} ${idx !== filteredSuggestions.length - 1 ? (theme === 'dark' ? 'border-b border-[#333]' : 'border-b border-[#eee]') : ''}`}
-                    >
-                      {suggestion}
-                    </div>
-                  ))}
-                </div>
-              )}
               {selectedFiles.length > 0 && (
                 <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">
                   {selectedFiles.map((file, idx) => (
@@ -2955,39 +3181,26 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                   onChange={handleInputChange}
                   onKeyDown={e => e.key === 'Enter' && handleSend()}
                   onPaste={handlePaste}
-                  placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "What's on your mind?"}
-                  className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
+                  placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s)` : "How can I help?"}
+                  className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
                 />
                 <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2">
                   <div className="relative">
-                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
-                      <Mic size={20} />
+                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
+                      <Mic size={18} />
                     </button>
                     {isMicMenuOpen && !isListening && (
-                      <div className={`absolute bottom-12 right-0 w-48 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
-                        <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Voice Mode</div>
+                      <div className={`absolute bottom-12 right-0 w-44 md:w-48 rounded-2xl border shadow-2xl py-2 z-50 animate-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                        <div className="px-4 py-2 text-[10px] md:text-sm font-semibold text-[#888] uppercase tracking-wider">Voice Mode</div>
                         
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setVoiceMode('chat'); setIsMicMenuOpen(false); startListening(); }}>
-                          <div>
-                            <div className="font-medium text-sm">Voice Chat</div>
-                            <div className="text-[10px] text-[#888]">AI replies in chat</div>
-                          </div>
+                        <div className={`px-4 py-2.5 md:py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setVoiceMode('chat'); setIsMicMenuOpen(false); startListening(); }}>
+                           <div className="font-medium text-xs md:text-sm">Voice Chat</div>
                           {voiceMode === 'chat' && <Check size={14} className="text-blue-500" />}
                         </div>
                         
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setVoiceMode('dictation'); setIsMicMenuOpen(false); startListening(); }}>
-                          <div>
-                            <div className="font-medium text-sm">Speech to Text</div>
-                            <div className="text-[10px] text-[#888]">Dictate your message</div>
-                          </div>
+                        <div className={`px-4 py-2.5 md:py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setVoiceMode('dictation'); setIsMicMenuOpen(false); startListening(); }}>
+                           <div className="font-medium text-xs md:text-sm">Dictation</div>
                           {voiceMode === 'dictation' && <Check size={14} className="text-blue-500" />}
-                        </div>
-
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setIsMicMenuOpen(false); setView('voice'); }}>
-                          <div>
-                            <div className="font-medium text-sm">Live Call</div>
-                            <div className="text-[10px] text-[#888]">Real-time voice screen</div>
-                          </div>
                         </div>
                       </div>
                     )}
@@ -3030,7 +3243,23 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                 Private Chat Mode
               </div>
             )}
-            <div className="flex-1 overflow-y-auto p-4 md:p-8 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-8">
+            <div 
+              ref={messagesContainerRef}
+              onScroll={handleManualScroll}
+              className="flex-1 overflow-y-auto p-4 md:p-8 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-8 relative scroll-smooth"
+            >
+              {showScrollBottom && (
+                <button 
+                  onClick={scrollToBottom}
+                  className={`fixed bottom-24 right-6 p-3 rounded-full shadow-2xl z-40 transition-all hover:scale-110 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'bg-[#111] border-[#333] text-[#00ff9d]' : 'bg-white border-[#ddd] text-black'}`}
+                >
+                  <div className="relative">
+                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-inherit animate-pulse"></div>
+                    <ChevronDown size={20} className="group-hover:translate-y-0.5 transition-transform" />
+                  </div>
+                  <span className="text-xs font-bold pr-1">New Messages</span>
+                </button>
+              )}
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center opacity-30 select-none text-center p-10">
                   <MessageSquare size={80} className="mb-6 opacity-20" />
@@ -3045,6 +3274,9 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                       ? (theme === 'dark' ? 'bg-[#333] text-white shadow-xl' : 'bg-black text-white shadow-lg')
                       : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
                   }`}>
+                    {msg.text.startsWith('[SANDBOX]') && msg.role === 'user' && (
+                       <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-2"><PenTool size={10}/> Sandbox instruction</div>
+                    )}
                     {msg.imageUrl && (
                       <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
                         <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain blur-0 transition-all duration-300" referrerPolicy="no-referrer" />
@@ -3060,9 +3292,19 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                         <audio controls src={msg.audioUrl} className="w-full" />
                       </div>
                     )}
+                    <div className={msg.role === 'user' ? 'text-white' : ''}>
+                      {msg.role === 'user' ? msg.text.replace('[SANDBOX]', '').trim() : null}
+                    </div>
                     {msg.role === 'ai' ? (
                       <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none`}>
-                        <MemoizedMarkdown content={msg.text} theme={theme} />
+                        {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
+                          <div className="flex flex-col gap-2">
+                             <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
+                             <MemoizedMarkdown content={msg.text.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
+                          </div>
+                        ) : (
+                          <MemoizedMarkdown content={msg.text.replace('[SANDBOX]', '').trim()} theme={theme} />
+                        )}
                         
                         {/* AI Message Actions */}
                         <div className="absolute -bottom-10 left-0 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-2">
@@ -3191,19 +3433,6 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
             
             <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 pt-10 bg-gradient-to-t z-30 ${theme === 'dark' ? 'from-black via-black/90 to-transparent' : 'from-[#f0f0f0] via-[#f0f0f0]/90 to-transparent'}`}>
               <div className="w-full max-w-3xl mx-auto relative" ref={inputContainerRef}>
-                {showSuggestions && filteredSuggestions.length > 0 && (
-                  <div className={`absolute bottom-full left-0 mb-2 w-full max-h-60 overflow-y-auto rounded-xl border shadow-2xl z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333]' : 'bg-white border-[#ddd]'}`}>
-                    {filteredSuggestions.map((suggestion, idx) => (
-                      <div 
-                        key={idx} 
-                        onClick={() => handleSuggestionClick(suggestion)}
-                        className={`px-4 py-3 cursor-pointer text-left text-sm transition-colors ${theme === 'dark' ? 'hover:bg-[#2a2a2a] text-white' : 'hover:bg-[#f5f5f5] text-black'} ${idx !== filteredSuggestions.length - 1 ? (theme === 'dark' ? 'border-b border-[#333]' : 'border-b border-[#eee]') : ''}`}
-                      >
-                        {suggestion}
-                      </div>
-                    ))}
-                  </div>
-                )}
                 {selectedFiles.length > 0 && (
                   <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">
                     {selectedFiles.map((file, idx) => (
@@ -3384,8 +3613,8 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                   />
                   <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2">
                     <div className="relative">
-                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
-                        <Mic size={20} />
+                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
+                        <Mic size={18} />
                       </button>
                       {isMicMenuOpen && !isListening && (
                         <div className={`absolute bottom-12 right-0 w-48 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
@@ -3792,138 +4021,319 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
 
         {view === 'ide' && (
           <div className={`w-full flex flex-col pt-[60px] md:pt-0 pb-0 absolute inset-0 bg-black ${isFullscreen ? 'z-[100] fixed h-screen w-screen' : 'z-40 h-full'}`}>
-            <div className={`flex flex-wrap justify-between items-center p-3 sm:p-4 border-b gap-2 z-10 ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-white'}`}>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setView('home')} className="md:hidden mr-2 p-1 hover:opacity-70"><X size={20}/></button>
-                <button 
-                  onClick={() => setShowIdeHistory(!showIdeHistory)} 
-                  className={`p-2 rounded-lg transition-colors ${showIdeHistory ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'}`}
-                  title="History"
-                >
-                  <Clock size={20} />
-                </button>
-                <PenTool size={20} className="text-[#00ff9d]" /> 
-                <h2 className="text-lg sm:text-xl font-bold hidden sm:block">Xer0byte Live Sandbox IDE</h2>
-                <div className={`ml-2 px-3 py-1.5 rounded-full border flex items-center gap-2 max-w-[200px] sm:max-w-none transition-all ${theme === 'dark' ? 'bg-[#111] border-[#333] hover:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] hover:border-[#999]'}`}>
-                  <span className="text-xs font-semibold opacity-60 hidden sm:inline">Lang:</span>
+            <div className={`flex flex-wrap justify-between items-center p-2 sm:p-4 border-b gap-2 z-10 ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-white'}`}>
+              <div className="flex items-center gap-2 w-full sm:w-auto overflow-hidden">
+                <button onClick={() => setView('home')} className="p-1.5 hover:opacity-70 flex-shrink-0"><X size={18}/></button>
+                <div className="flex items-center flex-shrink-0">
+                  <button 
+                    onClick={() => { setShowIdeHistory(!showIdeHistory); setShowIdeChat(false); setShowIdeDatabase(false); }} 
+                    className={`p-2 rounded-l-lg transition-colors border-r ${showIdeHistory ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'} ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}
+                    title="History"
+                  >
+                    <Clock size={18} />
+                  </button>
+                  <button 
+                    onClick={() => { setShowIdeDatabase(!showIdeDatabase); setShowIdeChat(false); setShowIdeHistory(false); }} 
+                    className={`p-2 rounded-r-lg transition-colors ${showIdeDatabase ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'}`}
+                    title="Database/Backend"
+                  >
+                    <HardDrive size={18} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 ml-1 min-w-0">
+                  <PenTool size={18} className="text-[#00ff9d] flex-shrink-0" /> 
+                  <h2 className="text-sm sm:text-lg font-bold truncate">Neural Sandbox</h2>
+                </div>
+                <div className={`ml-auto sm:ml-2 px-2 py-1 rounded-full border flex items-center gap-1 transition-all ${theme === 'dark' ? 'bg-[#111] border-[#333] hover:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] hover:border-[#999]'}`}>
                   <div className="relative flex items-center">
                     <select 
                       value={canvasLanguage} 
                       onChange={e => setCanvasLanguage(e.target.value)} 
-                      className="bg-transparent text-sm outline-none font-mono focus:text-[#00ff9d] w-full appearance-none cursor-pointer pr-5"
+                      className="bg-transparent text-[10px] sm:text-xs outline-none font-mono focus:text-[#00ff9d] appearance-none cursor-pointer pr-4"
                     >
-                      <optgroup label="Application & Web">
-                        <option value="html">HTML/JS/CSS (Web)</option>
-                        <option value="javascript">JavaScript</option>
-                        <option value="typescript">TypeScript</option>
+                      <optgroup label="Web">
+                        <option value="html">HTML/JS</option>
+                        <option value="typescript">TS/React</option>
                         <option value="python">Python</option>
-                        <option value="java">Java</option>
-                        <option value="csharp">C#</option>
-                        <option value="php">PHP</option>
-                        <option value="ruby">Ruby</option>
-                        <option value="go">Go</option>
-                        <option value="swift">Swift</option>
-                        <option value="kotlin">Kotlin</option>
-                        <option value="dart">Dart</option>
-                        <option value="elixir">Elixir</option>
-                        <option value="erlang">Erlang</option>
                       </optgroup>
-                      <optgroup label="Systems & Low-Level">
-                        <option value="c">C</option>
-                        <option value="cpp">C++</option>
+                      <optgroup label="Others">
+                        <option value="javascript">JS</option>
                         <option value="rust">Rust</option>
-                        <option value="zig">Zig</option>
-                        <option value="nim">Nim</option>
-                        <option value="d">D</option>
-                        <option value="ada">Ada</option>
-                        <option value="assembly">Assembly</option>
-                      </optgroup>
-                      <optgroup label="Data & Logical">
-                        <option value="r">R</option>
-                        <option value="julia">Julia</option>
-                        <option value="sql">SQL / SQLite</option>
-                        <option value="prolog">Prolog</option>
-                        <option value="lisp">Lisp</option>
-                        <option value="haskell">Haskell</option>
-                        <option value="clojure">Clojure</option>
-                        <option value="scala">Scala</option>
-                        <option value="ocaml">OCaml</option>
-                        <option value="fsharp">F#</option>
-                      </optgroup>
-                      <optgroup label="Other A-Z">
-                        <option value="bash">Bash</option>
-                        <option value="basic">BASIC</option>
-                        <option value="cobol">COBOL</option>
-                        <option value="crystal">Crystal</option>
-                        <option value="fortran">Fortran</option>
-                        <option value="groovy">Groovy</option>
-                        <option value="lua">Lua</option>
-                        <option value="pascal">Pascal</option>
-                        <option value="perl">Perl</option>
-                      </optgroup>
-                      <optgroup label="Esoteric">
-                        <option value="brainfuck">Brainfuck</option>
+                        <option value="go">Go</option>
                       </optgroup>
                     </select>
-                    <ChevronDown size={14} className="absolute right-0 pointer-events-none opacity-50" />
+                    <ChevronDown size={10} className="absolute right-0 pointer-events-none opacity-50" />
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2 w-full sm:w-auto justify-end">
                 <button 
                   onClick={handleRunCode}
                   disabled={isCanvasRunning || isThinkingIde}
-                  className={`flex items-center gap-1.5 px-3 md:px-4 py-1.5 rounded-full font-medium text-xs md:text-sm border transition-all ${(isCanvasRunning || isThinkingIde) ? 'opacity-50 cursor-not-allowed' : ''} ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#00ff9d] hover:text-[#00ff9d] bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#006633] hover:text-[#006633] bg-transparent'}`}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-[10px] sm:text-xs border transition-all ${(isCanvasRunning || isThinkingIde) ? 'opacity-50 cursor-not-allowed' : ''} ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#00ff9d] hover:text-[#00ff9d] bg-[#111]' : 'border-[#ccc] text-[#555] hover:border-[#006633] hover:text-[#006633] bg-white'}`}
                 >
-                  <Play size={14} fill="currentColor" /> {isCanvasRunning ? 'Running...' : 'Run Code'}
+                  <Play size={12} fill="currentColor" /> {isCanvasRunning ? 'Running' : 'Run'}
                 </button>
-                <button onClick={() => setCanvasMode(canvasMode === 'edit' ? 'split' : 'edit')} className={`px-3 md:px-4 py-1.5 rounded-full font-medium text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>
-                  {canvasMode === 'edit' ? 'Show Output' : 'Hide Output'}
-                </button>
-                <button onClick={() => setIsFullscreen(!isFullscreen)} className={`px-3 md:px-4 py-1.5 rounded-full font-medium text-xs md:text-sm border transition-all hidden md:flex items-center gap-1.5 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>
-                  {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
-                </button>
-                <button onClick={() => { 
-                    if(canvasContent.trim()) {
-                      setInputText(`Here is the code I have in my IDE:\n\n\`\`\`${canvasLanguage}\n${canvasContent}\n\`\`\`\n\nPlease `);
-                      setView('chat');
-                    } else {
-                      setView('home');
-                    }
-                  }} className={`px-3 md:px-4 py-1.5 rounded-full font-medium text-xs md:text-sm border transition-all hidden sm:flex items-center gap-1.5 ml-1 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>
-                  <MessageSquare size={14}/> Send to Chat
+                <button onClick={() => setCanvasMode(canvasMode === 'edit' ? 'split' : 'edit')} className={`px-3 py-1.5 rounded-full font-bold text-[10px] sm:text-xs border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:bg-[#222] bg-[#111]' : 'border-[#ccc] text-[#555] hover:bg-[#eee] bg-white'}`}>
+                  {canvasMode === 'edit' ? 'Output' : 'Editor'}
                 </button>
               </div>
             </div>
+              <div className="flex items-center gap-1 sm:gap-2">
+                <button onClick={() => setIsFullscreen(!isFullscreen)} className={`p-2 rounded-full transition-all hidden md:flex items-center gap-1.5 ${theme === 'dark' ? 'hover:bg-[#222] text-[#aaa]' : 'hover:bg-[#eee] text-[#555]'}`}>
+                  {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+                </button>
+                <div className={`h-8 w-[1px] ${theme === 'dark' ? 'bg-white/10' : 'bg-black/10'} mx-1 hidden md:block`}></div>
+                <button 
+                  onClick={() => setShowIdeChat(!showIdeChat)}
+                  className={`p-2 rounded-full transition-all ${showIdeChat ? (theme === 'dark' ? 'bg-[#00ff9d] text-black' : 'bg-black text-white') : (theme === 'dark' ? 'hover:bg-[#222]' : 'hover:bg-[#eee]')}`}
+                  title="Toggle AI Sidebar"
+                >
+                  <MessageSquare size={18}/>
+                </button>
+              </div>
             
             <div className={`flex-1 relative overflow-hidden flex flex-col md:flex-row pb-[60px] ${theme === 'dark' ? 'bg-[#1a1a1a]' : 'bg-white'}`}>
-              {showIdeHistory && (
-                <div className={`w-full md:w-[300px] border-b md:border-b-0 md:border-r z-30 flex flex-col h-[300px] md:h-full ${theme === 'dark' ? 'bg-[#0f0f0f] border-[#333]' : 'bg-[#f9f9f9] border-[#ddd]'}`}>
-                  <div className="p-4 border-b font-bold flex justify-between items-center text-sm">
-                    <span>Sandbox History</span>
-                    <button onClick={() => setCanvasHistory([])} className="text-[10px] opacity-40 hover:opacity-100 uppercase">Clear</button>
+              {(showIdeHistory || showIdeChat || showIdeDatabase) && (
+                <div className={`w-full md:w-[350px] border-b md:border-b-0 md:border-r z-30 flex flex-col h-[400px] md:h-full transition-all duration-300 ${theme === 'dark' ? 'bg-[#0f0f0f] border-[#333]' : 'bg-[#f9f9f9] border-[#ddd]'}`}>
+                  <div className={`flex p-1 border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
+                    <button 
+                      onClick={() => { setShowIdeChat(true); setShowIdeHistory(false); setShowIdeDatabase(false); }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${showIdeChat ? (theme === 'dark' ? 'bg-[#222] text-white' : 'bg-white text-black shadow-sm') : 'opacity-40'}`}
+                    >
+                      <MessageSquare size={14} /> Chat
+                    </button>
+                    <button 
+                      onClick={() => { setShowIdeHistory(true); setShowIdeChat(false); setShowIdeDatabase(false); }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${showIdeHistory ? (theme === 'dark' ? 'bg-[#222] text-white' : 'bg-white text-black shadow-sm') : 'opacity-40'}`}
+                    >
+                      <Clock size={14} /> History
+                    </button>
+                    <button 
+                      onClick={() => { setShowIdeDatabase(true); setShowIdeChat(false); setShowIdeHistory(false); }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all ${showIdeDatabase ? (theme === 'dark' ? 'bg-[#222] text-white' : 'bg-white text-black shadow-sm') : 'opacity-40'}`}
+                    >
+                      <HardDrive size={14} /> Database
+                    </button>
+                    <button 
+                      onClick={async () => {
+                        const newConv = await firestoreService.createConversation(user!.id, "New Sandbox Chat");
+                        const newConvId = newConv.id;
+                        setConversations(prev => [{
+                          id: newConvId,
+                          userId: user!.id,
+                          title: "New Sandbox Chat",
+                          lastMessage: "",
+                          timestamp: Date.now(),
+                          isArchived: false,
+                          isPinned: false
+                        }, ...prev]);
+                        setCurrentConversationId(newConvId);
+                        setMessages([]);
+                        setShowIdeChat(true);
+                        setShowIdeHistory(false);
+                      }}
+                      className={`px-3 flex items-center justify-center rounded-lg text-[#00ff9d] hover:bg-[#00ff9d]/10 transition-all`}
+                      title="New Chat"
+                    >
+                      <Plus size={16} />
+                    </button>
                   </div>
-                  <div className="flex-1 overflow-y-auto">
-                    {canvasHistory.length === 0 ? (
-                      <div className="p-10 text-center opacity-30 text-xs italic">No history yet.</div>
-                    ) : (
-                      canvasHistory.map((h, i) => (
-                        <div 
-                          key={i} 
-                          onClick={() => {
-                            setCanvasContent(h.code);
-                            // Extract language if possible
-                            const match = h.code.match(/```([a-z0-9#\-\+]+)?\n/i);
-                            if (match && match[1]) setCanvasLanguage(match[1].toLowerCase());
-                          }}
-                          className={`p-4 border-b cursor-pointer transition-colors group ${theme === 'dark' ? 'border-[#222] hover:bg-[#1a1a1a]' : 'border-[#eee] hover:bg-[#f0f0f0]'}`}
-                        >
-                          <div className="text-sm font-medium line-clamp-2 mb-1 group-hover:text-[#00ff9d]">{h.prompt}</div>
-                          <div className="text-[10px] opacity-40">{new Date(h.timestamp).toLocaleString()}</div>
+
+                  {showIdeChat && (
+                    <div className="flex-1 flex flex-col min-h-0 relative">
+                      <div 
+                        ref={ideMessagesContainerRef}
+                        onScroll={handleIdeManualScroll}
+                        className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar scroll-smooth"
+                      >
+                        {showIdeScrollBottom && (
+                          <button 
+                            onClick={scrollToIdeBottom}
+                            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in ${theme === 'dark' ? 'bg-[#111] border-[#333] text-[#00ff9d]' : 'bg-white border-[#ddd] text-black'}`}
+                          >
+                            <ChevronDown size={14} className="animate-bounce" />
+                            <span className="text-[10px] font-bold">New message</span>
+                          </button>
+                        )}
+                        {messages.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center opacity-20 text-center p-6 space-y-3">
+                            <PenTool size={40} />
+                            <p className="text-xs font-medium">Ask AI to write some code or explain something!</p>
+                          </div>
+                        ) : (
+                          messages.map((msg, i) => (
+                            <div key={msg.id || i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                              <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs md:text-sm ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#00ff9d] text-black font-medium' : 'bg-black text-white') : (theme === 'dark' ? 'bg-[#222] text-[#ddd]' : 'bg-white border border-[#ddd] text-black shadow-sm')}`}>
+                                {msg.text.startsWith('[SANDBOX]') ? msg.text.replace('[SANDBOX]', '').trim() : msg.text}
+                              </div>
+                            </div>
+                          ))
+                        )}
+                        <div ref={ideMessagesEndRef} />
+                      </div>
+                    </div>
+                  )}
+
+                  {showIdeHistory && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                      <div className="p-4 border-b font-bold flex justify-between items-center text-xs opacity-60">
+                        <span>Conversation History</span>
+                        <div className="flex items-center gap-4">
+                          <button 
+                            onClick={() => { setMessages([]); setCurrentConversationId(null); setShowIdeChat(true); }} 
+                            className="text-[#00ff9d] border border-[#00ff9d]/30 px-2 py-1 rounded hover:bg-[#00ff9d]/10 flex items-center gap-1.5"
+                          >
+                            <Plus size={12} /> <span className="text-[10px] font-bold uppercase tracking-wider">New Chat</span>
+                          </button>
+                          <button onClick={() => setShowIdeHistory(false)} className="md:hidden"><X size={14}/></button>
                         </div>
-                      ))
-                    )}
-                  </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar">
+                        {conversations.length === 0 ? (
+                          <div className="p-10 text-center opacity-30 text-xs italic">No conversations found.</div>
+                        ) : (
+                          conversations.map((conv) => (
+                            <div 
+                              key={conv.id} 
+                              onClick={() => {
+                                setCurrentConversationId(conv.id);
+                                setShowIdeChat(true);
+                                setShowIdeHistory(false);
+                              }}
+                              className={`p-4 border-b cursor-pointer transition-colors group ${currentConversationId === conv.id ? (theme === 'dark' ? 'bg-[#1a1a1a] border-l-4 border-l-[#00ff9d]' : 'bg-[#f0f0f0] border-l-4 border-l-[#006633]') : (theme === 'dark' ? 'border-[#222] hover:bg-[#111]' : 'border-[#eee] hover:bg-[#fafafa]')}`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <MessageSquare size={12} className={currentConversationId === conv.id ? "text-[#00ff9d]" : "opacity-40"} />
+                                <div className={`text-sm font-medium line-clamp-1 ${currentConversationId === conv.id ? "text-[#00ff9d]" : ""}`}>{conv.title}</div>
+                              </div>
+                              <div className="text-[10px] opacity-40">{new Date(conv.timestamp).toLocaleString()}</div>
+                            </div>
+                          ))
+                        )}
+                        
+                        <div className="p-4 border-t border-b bg-black/5 dark:bg-white/5 font-bold text-[10px] uppercase tracking-widest opacity-40">
+                          Sandbox Code History
+                        </div>
+                        {canvasHistory.length === 0 ? (
+                          <div className="p-10 text-center opacity-30 text-xs italic">No code history yet.</div>
+                        ) : (
+                          canvasHistory.map((h, i) => (
+                            <div 
+                              key={i} 
+                              onClick={() => {
+                                setCanvasContent(h.code);
+                                const match = h.code.match(/```([a-z0-9#\-\+]+)?\n/i);
+                                if (match && match[1]) setCanvasLanguage(match[1].toLowerCase());
+                              }}
+                              className={`p-4 border-b cursor-pointer transition-colors group ${theme === 'dark' ? 'border-[#222] hover:bg-[#1a1a1a]' : 'border-[#eee] hover:bg-[#f0f0f0]'}`}
+                            >
+                              <div className="text-sm font-medium line-clamp-2 mb-1 group-hover:text-[#00ff9d] italic">"{h.prompt}"</div>
+                              <div className="text-[10px] opacity-40">{new Date(h.timestamp).toLocaleString()}</div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {showIdeDatabase && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                      <div className="p-4 border-b font-bold flex justify-between items-center text-xs opacity-60">
+                        <span>Backend Cloud Services</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-2 h-2 rounded-full bg-[#00ff9d] animate-pulse"></div>
+                          <span className="text-[#00ff9d] uppercase">Online</span>
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+                        {!isBackendActive ? (
+                          <div className={`p-6 rounded-2xl border-2 border-dashed text-center flex flex-col items-center gap-4 ${theme === 'dark' ? 'border-[#333] bg-[#111]' : 'border-[#ddd] bg-gray-50'}`}>
+                            <div className="w-16 h-16 rounded-full bg-[#00ff9d]/10 flex items-center justify-center text-[#00ff9d]">
+                              <Lock size={32} />
+                            </div>
+                            <div>
+                              <h3 className="text-sm font-bold mb-1">Neural Backend Locked</h3>
+                              <p className="text-[10px] opacity-60 leading-relaxed max-w-[200px] mx-auto">
+                                Activate your cloud infrastructure to start building full-stack applications with real-time data persistence.
+                              </p>
+                            </div>
+                            <button 
+                              onClick={async () => {
+                                setIsSyncingBackend(true);
+                                // Simulation of activation/sync
+                                await new Promise(r => setTimeout(r, 2000));
+                                setIsBackendActive(true);
+                                setIsSyncingBackend(false);
+                              }}
+                              disabled={isSyncingBackend}
+                              className={`w-full py-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white' : 'bg-black text-white hover:bg-gray-800'}`}
+                            >
+                              {isSyncingBackend ? (
+                                <RefreshCw size={14} className="animate-spin" />
+                              ) : (
+                                <CheckCircle size={14} />
+                              )}
+                              {isSyncingBackend ? "Syncing Clusters..." : "Activate Cloud Backend"}
+                            </button>
+                            <p className="text-[9px] opacity-40 italic">By activating, you agree to Xer0byte Neural Cloud terms.</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div>
+                              <h4 className="text-[10px] uppercase font-bold opacity-40 mb-3 tracking-widest">Active Neural Nodes</h4>
+                              <div className="space-y-2">
+                                 {[
+                                   { name: 'Auth Node', path: 'firebase/auth', status: 'Secure' },
+                                   { name: 'Neural Store', path: 'google/firestore', status: 'Live' },
+                                   { name: 'Asset Bucket', path: 'firebase/storage', status: 'Active' },
+                                   { name: 'Real-time Socket', path: 'neural/stream', status: 'Online' }
+                                 ].map((col, idx) => (
+                                   <div key={idx} className={`p-3 rounded-xl border flex justify-between items-center ${theme === 'dark' ? 'bg-[#161616] border-[#222]' : 'bg-white border-[#eee]'}`}>
+                                     <div>
+                                       <div className="text-xs font-bold flex items-center gap-2">
+                                         <HardDrive size={12} className="text-[#00ff9d]" />
+                                         {col.name}
+                                       </div>
+                                       <div className="text-[10px] opacity-40 font-mono mt-0.5">{col.path}</div>
+                                     </div>
+                                     <div className="px-2 py-0.5 bg-[#00ff9d]/10 text-[#00ff9d] text-[9px] font-bold rounded uppercase">
+                                       {col.status}
+                                     </div>
+                                   </div>
+                                 ))}
+                              </div>
+                            </div>
+
+                            <div className={`p-4 rounded-2xl border-2 border-dashed ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
+                              <div className="flex items-center gap-3 mb-2">
+                                <Lock size={16} className="text-[#00ff9d]" />
+                                <span className="text-xs font-bold uppercase tracking-wider">Cloud Integrity</span>
+                              </div>
+                              <p className="text-[10px] opacity-60 leading-relaxed">
+                                Sandbox cloud state is fully synced. Changes in code will automatically update your neural database schema.
+                              </p>
+                            </div>
+
+                            <button 
+                              onClick={() => {
+                                setIdePrompt("Optimize my current backend configuration and check for security vulnerabilities.");
+                                setShowIdeChat(true);
+                                setShowIdeDatabase(false);
+                              }}
+                              className={`w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all ${theme === 'dark' ? 'bg-[#222] border border-[#333] hover:border-[#00ff9d] text-[#00ff9d]' : 'bg-white border border-[#ddd] hover:border-black text-black'}`}
+                            >
+                              <Wrench size={14} /> Full System Audit
+                            </button>
+                          </>
+                        )}
+
+                        <div className="opacity-20 text-[9px] text-center uppercase tracking-widest mt-auto pt-10">
+                          Secure Cloud Infrastructure v4.2
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -3970,35 +4380,45 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                       />
                     ) : (
                       <div className="flex-1 flex flex-col min-h-0">
-                        <pre className="flex-1 p-4 font-mono text-[13px] text-[#00ff9d] whitespace-pre-wrap leading-relaxed overflow-y-auto custom-scrollbar scroll-smooth">
-                          {canvasOutput || (
-                            <span className="opacity-40 italic text-white/40">Output will appear here after running...</span>
+                        <div className="flex-1 p-4 font-mono text-[13px] leading-relaxed overflow-y-auto custom-scrollbar scroll-smooth space-y-1">
+                          {consoleLogs.length === 0 && !canvasOutput && (
+                             <span className="opacity-40 italic text-white/40 block">Neural terminal initialized. Output will appear here...</span>
                           )}
-                        </pre>
-                        <div className="p-2 bg-[#111] border-t border-[#222] flex items-center gap-2">
-                          <span className="text-[#00ff9d] opacity-50 text-xs font-bold font-mono ml-1">$</span>
+                          {canvasOutput && (
+                            <div className="text-[#00ff9d] mb-2">{canvasOutput}</div>
+                          )}
+                          {consoleLogs.map((log, idx) => (
+                            <div key={idx} className={`flex gap-2 ${log.type === 'input' ? 'text-white' : log.type === 'error' ? 'text-red-400' : 'text-[#00ff9d]'}`}>
+                              <span className="opacity-30">{log.type === 'input' ? '$' : '>'}</span>
+                              <span className="break-all">{log.text}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <form 
+                          onSubmit={handleConsoleSubmit} 
+                          className="p-2 md:p-3 bg-[#0f0f0f] border-t border-[#222] flex items-center gap-2 group focus-within:border-[#00ff9d] transition-colors"
+                        >
+                          <span className="text-[#00ff9d] opacity-50 text-xs md:text-sm font-mono ml-1">$</span>
                           <input 
                             type="text" 
-                            placeholder="Type to logs / commands..."
-                            className="flex-1 bg-transparent text-[11px] font-mono text-[#00ff9d] outline-none px-1 py-1"
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                const val = (e.target as HTMLInputElement).value;
-                                if (!val.trim()) return;
-                                setCanvasOutput(prev => prev + `\n> ${val}\n`);
-                                (e.target as HTMLInputElement).value = '';
-                                
-                                // Record interaction in history
-                                if (user && currentConversationId) {
-                                  firestoreService.addMessage(user.id, currentConversationId, {
-                                    role: 'user',
-                                    text: `Console Input: ${val}`
-                                  });
-                                }
-                              }
-                            }}
+                            value={consoleInput}
+                            onChange={(e) => setConsoleInput(e.target.value)}
+                            placeholder="Type neural command or input data..."
+                            className="flex-1 bg-transparent text-[12px] md:text-[14px] font-mono text-[#00ff9d] outline-none px-1 py-1 placeholder:opacity-30"
+                            autoFocus
                           />
-                        </div>
+                          <div className="flex items-center gap-2 pr-1 opacity-0 group-focus-within:opacity-100 transition-opacity">
+                            <span className="text-[10px] items-center gap-1.5 font-mono text-[#00ff9d]/40 hidden sm:block">Press Enter</span>
+                            <ArrowUp size={12} className="text-[#00ff9d] animate-bounce" />
+                            <button 
+                              type="button" 
+                              onClick={() => setConsoleLogs([{ type: 'system', content: 'Console cleared.' }])}
+                              className="text-[10px] font-mono text-red-500/50 hover:text-red-500 ml-2"
+                            >
+                              CLEAR
+                            </button>
+                          </div>
+                        </form>
                       </div>
                     )}
                   </div>
@@ -4293,17 +4713,17 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                         <>
                           <li className="flex items-center gap-4"><span className="text-white">🚀</span> Access to Gemini 1.5 Pro</li>
                           <li className="flex items-center gap-4"><span className="text-white">🎤</span> Live AI Voice Mode Access</li>
-                          <li className="flex items-center gap-4"><span className="text-white">💻</span> Live Coding Sandbox (IDE)</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🧠</span> Neural Sandbox (Frontend Only)</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🖼️</span> Basic AI Image Generation</li>
                           <li className="flex items-center gap-4"><span className="text-white">📁</span> 5 GB Secure Storage</li>
-                          <li className="flex items-center gap-4"><span className="text-white">⚡</span> Increased message limits</li>
                         </>
                       ) : (
                         <>
                           <li className="flex items-center gap-4"><span className="text-white">🚀</span> Gemini 1.5 Pro for Teams</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Unlimited Voice Mode for all members</li>
-                          <li className="flex items-center gap-4"><span className="text-white">💻</span> Shared Live Coding IDEs</li>
-                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 100 GB Secure Storage</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎧</span> Priority Customer Support</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Unlimited Voice Mode for members</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🧠</span> Neural Sandbox Team Shared</li>
+                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 100 GB Team Storage</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🎧</span> Priority Support</li>
                         </>
                       )}
                     </ul>
@@ -4329,44 +4749,44 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                     <ul className="space-y-4 md:space-y-5 text-white/80 font-medium flex-1 relative z-10 text-sm md:text-base">
                       {planTab === 'individual' ? (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Advanced Gemini 1.5 Pro & Thinking Models</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Neural Thinking & Advanced Gemini 3.1 Pro</li>
                           <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">📚</span> 
+                            <span className="text-white mt-1">🧠</span> 
                             <div>
-                              <div className="text-white">Full Access to Xer0byteLM</div>
-                              <div className="text-xs md:text-sm text-white/50 font-normal">Deep research AI with Audio overviews</div>
+                              <div className="text-white">Full-Stack Neural IDE</div>
+                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Build 100% functional Neural Sites & Cloud Apps</div>
                             </div>
                           </li>
                           <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">🎤</span> 
+                            <span className="text-white mt-1">🎨</span> 
                             <div>
-                              <div className="text-white">Unlimited Live AI Voice Mode</div>
-                              <div className="text-xs md:text-sm text-white/50 font-normal">Speak natively to your AI assistant</div>
+                              <div className="text-white">Pro Generative Suite</div>
+                              <div className="text-[10px] md:text-sm text-white/50 font-normal">4K Image Gen & Neural Waveforms (Lyria Beta)</div>
                             </div>
                           </li>
-                          <li className="flex items-center gap-4"><span className="text-white">💻</span> Unlimited Live Sandbox IDE Usage</li>
-                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 20 GB Secure Cloud Storage</li>
-                          <li className="flex items-center gap-4"><span className="text-white">⚡</span> Zero limits on conversation length</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Unlimited Interactive Neural Voice Mode</li>
+                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 50 GB Neural Cloud Storage (High Speed)</li>
+                          <li className="flex items-center gap-4"><span className="text-white">⚡</span> Zero restrictions on Neural Thought Length</li>
                         </>
                       ) : (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Unlimited access across your entire team</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Team-Wide Neural Compute (Priority)</li>
                           <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">📚</span> 
+                            <span className="text-white mt-1">🌩️</span> 
                             <div>
-                              <div className="text-white">Xer0byteLM Enterprise Mode</div>
-                              <div className="text-xs md:text-sm text-white/50 font-normal">Ground AI entirely on your company data</div>
+                              <div className="text-white">Neural Enterprise Cloud</div>
+                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Dedicated Managed Clusters & Data Sync</div>
                             </div>
                           </li>
                           <li className="flex items-start gap-4">
                             <span className="text-white mt-1">📁</span> 
                             <div>
-                              <div className="text-white">500 GB Secure Cloud Storage</div>
-                              <div className="text-xs md:text-sm text-white/50 font-normal">Massive capacity for large enterprise logic</div>
+                              <div className="text-white">1 TB Massive Secure Storage</div>
+                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Infinite History & Bulk File Processing</div>
                             </div>
                           </li>
-                          <li className="flex items-center gap-4"><span className="text-white">🛡️</span> Enterprise Security & Priority SSO</li>
-                          <li className="flex items-center gap-4"><span className="text-white">👨‍💼</span> Dedicated Account Manager</li>
+                          <li className="flex items-center gap-4"><span className="text-white">🛡️</span> Bank-Grade Neural Encryption & SSO</li>
+                          <li className="flex items-center gap-4"><span className="text-white">👨‍💼</span> Dedicated 24/7 Neural Support Team</li>
                         </>
                       )}
                     </ul>

@@ -1,6 +1,6 @@
 {
-  "name": "Xer0byte AI",
-  "description": "The absolute best AI in the world. Featuring Chat, Image Generation, Neural Sandbox, and Xer0bytepedia.",
+  "name": "Neural X: The Infinite AI",
+  "description": "High-velocity Neural IDE with real-time Sandbox, 4K Image Generation, and Interactive Voice Mode. Built for professionals.",
   "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": []
 }
