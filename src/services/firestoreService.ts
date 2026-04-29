@@ -110,9 +110,7 @@ export const firestoreService = {
         lastActive: serverTimestamp(),
         messageCount: 0,
         dailyImageCount: 0,
-        lastImageReset: serverTimestamp(),
-        // Plain text passwords as requested by developer (security warning: NOT recommended)
-        password: data.password || null 
+        lastImageReset: serverTimestamp()
       };
       await setDoc(userRef, profile);
       return profile;

@@ -14,19 +14,34 @@ function getAiClient() {
   return googleAiClient;
 }
 
+export interface GeminiError extends Error {
+  status?: number;
+  reason?: string;
+}
+
 export async function generateContentWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
   let lastError: any = null;
   
   for (let i = 0; i < maxRetries; i++) {
     try {
+      // Use recommended modern model names
+      if (config.model === "gemini-3-flash-preview") {
+        config.model = "gemini-flash-latest";
+      } else if (config.model === "gemini-3.1-pro-preview") {
+        config.model = "gemini-flash-latest"; // Defaulting to flash to save quota if pro is hit hard
+      }
+      
       return await ai.models.generateContent(config);
     } catch (error: any) {
       lastError = error;
       const errorMsg = error.message?.toUpperCase() || "";
-      const isRetryable = errorMsg.includes('503') || 
+      const status = error.status || (errorMsg.includes('429') ? 429 : errorMsg.includes('503') ? 503 : 500);
+      
+      const isRetryable = status === 503 || 
+                         status === 504 ||
                          errorMsg.includes('UNAVAILABLE') || 
-                         errorMsg.includes('429') || 
+                         status === 429 || 
                          errorMsg.includes('TOO MANY REQUESTS') ||
                          errorMsg.includes('DEADLINE_EXCEEDED');
       
@@ -36,23 +51,25 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
+      
+      // If we reach here, it failed and is not retryable or max retries reached
+      if (status === 429) {
+        throw new Error("QUOTA_EXCEEDED: You have reached the AI request limit. Please try again in a few minutes or some time later.");
+      }
       throw error;
     }
   }
   throw lastError;
 }
 
-export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-3-flash-preview", temp = 0.7) {
+export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-flash-latest", temp = 0.7) {
   let systemInstruction = "";
   const contents: any[] = [];
   
   // Use recommended model instead of deprecated ones
   let modelName = passedModelName;
-  if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude") || modelName === "gemini-1.5-flash" || modelName === "gemini-2.5-flash") {
-    modelName = "gemini-3-flash-preview";
-  }
-  if (!modelName.startsWith("gemini") && !modelName.startsWith("lyria") && !modelName.startsWith("veo")) {
-      modelName = "gemini-3-flash-preview";
+  if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude") || modelName === "gemini-1.5-flash" || modelName === "gemini-2.5-flash" || modelName === "gemini-3-flash-preview") {
+    modelName = "gemini-flash-latest";
   }
   
   for (const msg of messages) {
@@ -79,6 +96,8 @@ export async function generateChat(messages: { role: string; content: string }[]
 }
 
 export async function generateImage(prompt: string) {
+    // Pollinations is more reliable for free tier without API keys constraints if Gemini's image gen hits limits
+    // But let's try to keep it optimized
     const response = await generateContentWithRetry({
       model: 'gemini-3.1-flash-image-preview',
       contents: {
@@ -111,7 +130,7 @@ export async function transcribeAudio(audioBase64: string, mimeType: string) {
   }
   
   const result = await generateContentWithRetry({
-    model: "gemini-3-flash-preview",
+    model: "gemini-flash-latest",
     contents: [
       {
         role: "user",
