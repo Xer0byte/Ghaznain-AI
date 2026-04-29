@@ -12,7 +12,10 @@ export const cursorTrail = ({
   const ctx = canvas.getContext("2d");
   if (!ctx) return { cleanUp: () => {}, renderTrailCursor: () => {} };
 
-  const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  let width = window.innerWidth;
+  let height = window.innerHeight;
+
+  const mouse = { x: width / 2, y: height / 2 };
   const points: { x: number; y: number }[] = [];
   const amount = 20;
 
@@ -35,6 +38,8 @@ export const cursorTrail = ({
   const handleResize = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
+    width = canvas.width;
+    height = canvas.height;
   };
 
   window.addEventListener("mousemove", handleMouseMove);
@@ -45,21 +50,24 @@ export const cursorTrail = ({
   let animationFrameId: number;
 
   const renderTrailCursor = () => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, width, height);
 
     let x = mouse.x;
     let y = mouse.y;
 
-    points.forEach((point, index) => {
+    points.forEach((point) => {
       point.x += (x - point.x) * 0.15;
       point.y += (y - point.y) * 0.15;
       x = point.x;
       y = point.y;
     });
 
+    const displayColor = color || "#00ff9d";
+
+    // Trail line
     ctx.beginPath();
-    ctx.lineWidth = window.innerWidth < 768 ? 1.5 : 2;
-    ctx.strokeStyle = color || "#00ff9d";
+    ctx.lineWidth = width < 768 ? 1.5 : 2;
+    ctx.strokeStyle = displayColor;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
@@ -70,6 +78,31 @@ export const cursorTrail = ({
       ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
     }
     ctx.stroke();
+
+    // Neural dots
+    points.forEach((point, index) => {
+      const size = (1 - index / points.length) * (width < 768 ? 4 : 6);
+      ctx.beginPath();
+      ctx.fillStyle = displayColor;
+      ctx.globalAlpha = 1 - index / points.length;
+      ctx.arc(point.x, point.y, size / 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
+    // Head Glow
+    ctx.beginPath();
+    const glowColor = displayColor.replace(/0\.\d+\)$/, "0.4)").replace(/, \d+\)$/, ", 0.4)");
+    // If color is hsla(183, 63%, 40%, 0.5), we want to make a glow around the head
+    // We can use shadowBlur for a simpler 100% same feel if they used it
+    const radialGlow = ctx.createRadialGradient(points[0].x, points[0].y, 0, points[0].x, points[0].y, 15);
+    radialGlow.addColorStop(0, displayColor);
+    radialGlow.addColorStop(1, "transparent");
+    ctx.fillStyle = radialGlow;
+    ctx.globalAlpha = 0.4;
+    ctx.arc(points[0].x, points[0].y, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
     animationFrameId = requestAnimationFrame(renderTrailCursor);
   };

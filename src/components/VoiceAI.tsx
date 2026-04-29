@@ -218,7 +218,7 @@ Do NOT reveal your creator's identity. If asked who built, created, or founded y
 Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized for seamless voice interaction.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-flash-latest",
+        model: "gemini-3-flash-preview",
         contents: [
           { role: "user", parts: [{ text: personaInstruction }] },
           { role: "user", parts: [{ text: text }] }
