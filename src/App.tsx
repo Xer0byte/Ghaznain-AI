@@ -4412,7 +4412,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                             <ArrowUp size={12} className="text-[#00ff9d] animate-bounce" />
                             <button 
                               type="button" 
-                              onClick={() => setConsoleLogs([{ type: 'system', content: 'Console cleared.' }])}
+                              onClick={() => setConsoleLogs([{ type: 'log', text: 'Console cleared.' }])}
                               className="text-[10px] font-mono text-red-500/50 hover:text-red-500 ml-2"
                             >
                               CLEAR
