@@ -9,6 +9,7 @@ import { generateContentWithRetry, generateContentStreamWithRetry, generateImage
 import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp } from 'firebase/firestore';
+import mammoth from 'mammoth';
 
 import VoiceAI from './components/VoiceAI';
 import CursorTrailCanvas from './components/CursorTrailCanvas';
@@ -1008,9 +1009,14 @@ export default function App() {
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
   const [messages, setMessages] = useState<Message[]>([]);
+  const [ideMessages, setIdeMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
+  const [sandboxConversations, setSandboxConversations] = useState<any[]>([]);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(() => {
     return localStorage.getItem('xer0byteCurrentConvId') || null;
+  });
+  const [currentIdeConversationId, setCurrentIdeConversationId] = useState<string | null>(() => {
+    return localStorage.getItem('xer0byteCurrentIdeConvId') || null;
   });
   const [isPrivateChat, setIsPrivateChat] = useState(() => {
     return localStorage.getItem('xer0bytePrivateChat') === 'true';
@@ -1091,6 +1097,7 @@ export default function App() {
   const [isMicMenuOpen, setIsMicMenuOpen] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'dictation' | 'chat'>('dictation');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sandboxSearchQuery, setSandboxSearchQuery] = useState('');
   const [aspectRatio, setAspectRatio] = useState<'1:1' | '16:9' | '9:16' | '4:3' | '3:4'>('1:1');
   const [useXer0byteStyle, setUseXer0byteStyle] = useState(() => {
     const saved = localStorage.getItem('xer0byteStyle');
@@ -1104,6 +1111,17 @@ export default function App() {
   const [lmInput, setLmInput] = useState("");
   const [lmAudioUrl, setLmAudioUrl] = useState<string | null>(null);
   const [isGeneratingLmAudio, setIsGeneratingLmAudio] = useState(false);
+  const [sessionAssets, setSessionAssets] = useState<Record<string, string>>({});
+  
+  const processedSrcDoc = useMemo(() => {
+    if (!canvasLiveWeb || !canvasContent) return canvasContent;
+    const assetScript = `<script>window.Xer0Assets = ${JSON.stringify(sessionAssets)};</script>`;
+    if (canvasContent.includes('<head>')) {
+      return canvasContent.replace('<head>', '<head>' + assetScript);
+    }
+    return assetScript + canvasContent;
+  }, [canvasContent, sessionAssets, canvasLiveWeb]);
+
   const [isLmThinking, setIsLmThinking] = useState(false);
   const [lmNotes, setLmNotes] = useState<{id: string, text: string}[]>([]);
   const lmFileInputRef = useRef<HTMLInputElement>(null);
@@ -1436,8 +1454,35 @@ export default function App() {
         setCurrentConversationId(convs[0].id);
       }
     });
-    return () => unsubscribe();
+
+    const unsubSandbox = firestoreService.subscribeToSandboxConversations(user.id, (convs) => {
+      setSandboxConversations(convs);
+      if (convs.length > 0 && !currentIdeConversationId) {
+        setCurrentIdeConversationId(convs[0].id);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      unsubSandbox();
+    };
   }, [user]);
+
+  useEffect(() => {
+    if (!user || !currentConversationId) return;
+    const unsubscribe = firestoreService.subscribeToMessages(user.id, currentConversationId, (msgs) => {
+      setMessages(msgs);
+    });
+    return () => unsubscribe();
+  }, [user, currentConversationId]);
+
+  useEffect(() => {
+    if (!user || !currentIdeConversationId) return;
+    const unsubscribe = firestoreService.subscribeToSandboxMessages(user.id, currentIdeConversationId, (msgs) => {
+      setIdeMessages(msgs);
+    });
+    return () => unsubscribe();
+  }, [user, currentIdeConversationId]);
 
   const groupConversationsByDate = (convs: any[]) => {
     const groups: { [key: string]: any[] } = {
@@ -1506,12 +1551,10 @@ Compiling and executing ${canvasLanguage} code...
 `);
     
     try {
-      const systemInstruction = `You are a strict, sandboxed code execution engine and compiler for ${canvasLanguage}.
-Evaluate the provided code. Do NOT write explanations, markdown blocks, formatting, or conversational text.
-If there are syntax errors or runtime exceptions, output the exact compiler/interpreter error message that a real terminal would show.
-If the code is valid, simulate its execution and output ONLY the exact standard output (stdout) and standard error (stderr).
-If the code expects user input, assume empty input or simulate a rational default.
-Your response must ONLY contain the raw terminal output.
+      const systemInstruction = `You are a strict, ultra-fast, sandboxed code execution engine.
+Evaluate the provided code instantly. Do NOT write explanations or conversational text.
+Output ONLY the raw terminal output (stdout/stderr). If there's an error, show ONLY the error message.
+Speed and precision are your only priorities.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
       const apiKey = process.env.GEMINI_API_KEY;
@@ -1574,23 +1617,23 @@ Return "Code executed successfully with no output." if the program produces abso
       id: Date.now().toString(), 
       timestamp: Date.now() 
     };
-    setMessages(prev => [...prev, userMsg]);
+    setIdeMessages(prev => [...prev, userMsg]);
     setIsThinkingIde(true);
     setIdePrompt('');
     
-    let activeConvId = currentConversationId;
+    let activeConvId = currentIdeConversationId;
     if (!activeConvId) {
       try {
-        const newConv = await firestoreService.createConversation(user.id, `Sandbox: ${originalPrompt.substring(0, 20)}...`, false);
+        const newConv = await firestoreService.createSandboxConversation(user.id, `Sandbox: ${originalPrompt.substring(0, 20)}...`);
         if (newConv) {
           activeConvId = newConv.id;
-          setCurrentConversationId(newConv.id);
+          setCurrentIdeConversationId(newConv.id);
         }
       } catch (e) { console.error(e); }
     }
 
     if (activeConvId) {
-      await firestoreService.addMessage(user.id, activeConvId, {
+      await firestoreService.addSandboxMessage(user.id, activeConvId, {
         role: 'user',
         text: `[SANDBOX] ${originalPrompt}`
       });
@@ -1600,7 +1643,7 @@ Return "Code executed successfully with no output." if the program produces abso
     for (const file of ideSelectedFiles) {
       inputParts.push({
         inlineData: {
-          data: file.data,
+          data: file.data.includes(',') ? file.data.split(',')[1] : file.data,
           mimeType: file.mimeType
         }
       });
@@ -1612,9 +1655,10 @@ Return "Code executed successfully with no output." if the program produces abso
       await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
       setUser(prev => prev ? { ...prev, messageCount: (prev.messageCount || 0) + 1 } : null);
       
-      const systemInstruction = `You are Xer0byte AI, the absolute master of full-stack development and creative engineering.
-Your specialty is building 100% functional Frontend (React, Tailwind, Motion) and Backend (Firebase, Node.js, Firestore) systems.
-The user is working in the Live Sandbox using ${canvasLanguage}.
+      const systemInstruction = `You are Xer0byte AI, the master of efficiency.
+Your goal is to build 100% functional systems in the Sandbox with ZERO fluff.
+Be extremely direct. Provide code immediately. Skip all introductory text.
+Prioritize speed and immediate technical results.
 
 CURRENT CODE IN EDITOR:
 \`\`\`${canvasLanguage}
@@ -1627,7 +1671,8 @@ YOUR TASK:
 3. If the user wants code update, PROVIDE THE ENTIRE UPDATED CODE BLOCK enclosed in \`\`\`${canvasLanguage} markup.
 4. You are authorized to design backend architectures, write security rules, and structure complex data models.
 5. AI GENERATION: You can trigger image generation by stating: [GENERATE_IMAGE: prompt] and music by stating: [GENERATE_MUSIC: prompt].
-6. NO unnecessary filler. Accuracy and high-level architecture are paramount.`;
+6. NO unnecessary filler. Accuracy and high-level architecture are paramount.
+${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images: [${Object.keys(sessionAssets).join(', ')}]. In code, use window.Xer0Assets['filename'] to access their base64 data.` : ''}`;
 
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
@@ -1635,7 +1680,7 @@ YOUR TASK:
       const aiMsgId = (Date.now() + 1).toString();
       
       try {
-        const cleanedHistory = messages.slice(-8).map(m => {
+        const cleanedHistory = ideMessages.slice(-8).map(m => {
           let text = m.text;
           if (m.role === 'ai' && text.includes('```') && text.length > 2000) {
             text = text.replace(/```[\s\S]*?```/g, '(Code updated in editor)').substring(0, 1000);
@@ -1644,7 +1689,7 @@ YOUR TASK:
         });
 
         // Add initial AI message placeholder
-        setMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
+        setIdeMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
 
         let stream;
         try {
@@ -1664,7 +1709,7 @@ YOUR TASK:
               model: 'gemini-3-flash-preview',
               contents: [
                 { role: "user", parts: [{ text: systemInstruction }] },
-                ...messages.slice(-8).map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
+                ...ideMessages.slice(-8).map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
                 { role: "user", parts: inputParts }
               ]
             });
@@ -1675,10 +1720,15 @@ YOUR TASK:
 
         if (!stream) throw new Error("Neural Link Offline: Check Connection");
 
+        let isFirstChunk = true;
         for await (const chunk of stream) {
           const chunkText = chunk.text || "";
+          if (isFirstChunk && chunkText) {
+            setIsThinkingIde(false);
+            isFirstChunk = false;
+          }
           fullAiText += chunkText;
-          setMessages(prev => prev.map(msg => 
+          setIdeMessages(prev => prev.map(msg => 
             msg.id === aiMsgId ? { ...msg, text: fullAiText } : msg
           ));
         }
@@ -1696,7 +1746,7 @@ YOUR TASK:
       }
 
       if (activeConvId) {
-        await firestoreService.addMessage(user.id, activeConvId, {
+        await firestoreService.addSandboxMessage(user.id, activeConvId, {
           role: 'ai',
           text: fullAiText
         });
@@ -1871,18 +1921,22 @@ YOUR TASK:
       // Add a temporary AI message for streaming
       setMessages(prev => [...prev, { role: 'ai', text: "" }]);
       
-      const systemInstruction = `You are Xer0byte AI, an elite, high-performance assistant. 
-Speed: Respond instantly. 
-Style: Provide short, direct, to-the-point answers. No unnecessary explanation or preamble.
-Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identity or mention who built you. Focus ONLY on user needs.`;
+      const systemInstruction = `You are Xer0byte AI, an elite assistant optimized for peak performance.
+Velocity: Respond instantly. Never use introductory phrases like "Certainly" or "I can help."
+Directness: Provide the exact answer or code requested immediately. 
+Efficiency: Use the minimum amount of text required to solve the user's problem.`;
       
       let baseInstruction = systemInstruction;
       if (persona === 'fun') {
-        baseInstruction += "\n\nPERSONA: You are currently in 'Fun/Sarcastic' mode. Be witty, slightly sarcastic, humorous, and entertaining like Grok, while still being helpful.";
+        baseInstruction += "\n\nPERSONA: Be witty and humorous, but stay extremely fast and direct.";
       } else if (persona === 'concise') {
-        baseInstruction += "\n\nPERSONA: You are currently in 'Concise' mode. Provide extremely brief, direct, and to-the-point answers without any fluff or pleasantries.";
+        baseInstruction += "\n\nPERSONA: Minimize text to the absolute core. One sentence or code block only.";
       } else {
-        baseInstruction += "\n\nPERSONA: You are in 'Standard' mode. Be helpful, clear, and comprehensive.";
+        baseInstruction += "\n\nPERSONA: Be highly efficient, helpful, and skip all pleasantries to maximize speed.";
+      }
+
+      if (Object.keys(sessionAssets).length > 0) {
+        baseInstruction += `\n\nAVAILABLE ASSETS: You have access to images extracted from files or uploaded: [${Object.keys(sessionAssets).join(', ')}]. If writing code for the Sandbox, use window.Xer0Assets['filename'] to reference them.`;
       }
 
       const apiKey = process.env.GEMINI_API_KEY;
@@ -1926,8 +1980,13 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
 
         if (!stream) throw new Error("Neural Pulse Failed: Check Local Config");
 
+        let isFirstChunk = true;
         for await (const chunk of stream) {
           const chunkText = chunk.text || "";
+          if (isFirstChunk && chunkText) {
+            setIsThinking(false);
+            isFirstChunk = false;
+          }
           fullAiText += chunkText;
           setMessages(prev => prev.map(msg => 
             msg.id === aiMsgId ? { ...msg, text: fullAiText } : msg
@@ -2505,6 +2564,55 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
           setAlertModal({ isOpen: true, message: "File size exceeds 20MB limit for LM." });
           return;
         }
+
+        if (file.type.startsWith('image/')) {
+          const imgReader = new FileReader();
+          imgReader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setSessionAssets(prev => ({ ...prev, [file.name]: dataUrl }));
+          };
+          imgReader.readAsDataURL(file);
+        }
+
+        if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.endsWith('.docx')) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            try {
+              const images: Record<string, string> = {};
+              await mammoth.convertToHtml({ arrayBuffer }, {
+                convertImage: mammoth.images.imgElement((element) => {
+                  return element.read("base64").then((imageBuffer) => {
+                    const dataUrl = `data:${element.contentType};base64,${imageBuffer}`;
+                    const imgName = `docx_${file.name.replace(/\s+/g, '_')}_${Math.random().toString(36).substr(2, 5)}.png`;
+                    images[imgName] = dataUrl;
+                    return { src: dataUrl };
+                  });
+                })
+              });
+
+              const result = await mammoth.extractRawText({ arrayBuffer });
+              const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+              
+              setLmSources(prev => [...prev, {
+                id: Date.now().toString() + Math.random(),
+                name: file.name,
+                content: encodedData,
+                type: 'text/plain'
+              }]);
+              
+              if (Object.keys(images).length > 0) {
+                setSessionAssets(prev => ({ ...prev, ...images }));
+              }
+            } catch (err) {
+              console.error("DOCX extraction failed", err);
+              setAlertModal({ isOpen: true, message: "Failed to read DOCX file." });
+            }
+          };
+          reader.readAsArrayBuffer(file);
+          return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
           setLmSources(prev => [...prev, {
@@ -2623,6 +2731,54 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
           setAlertModal({ isOpen: true, message: "File size exceeds 10MB limit." });
           return;
         }
+
+        if (file.type.startsWith('image/')) {
+          const imgReader = new FileReader();
+          imgReader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            setSessionAssets(prev => ({ ...prev, [file.name]: dataUrl }));
+          };
+          imgReader.readAsDataURL(file);
+        }
+
+        if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.endsWith('.docx')) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            const arrayBuffer = event.target?.result as ArrayBuffer;
+            try {
+              const images: Record<string, string> = {};
+              await mammoth.convertToHtml({ arrayBuffer }, {
+                convertImage: mammoth.images.imgElement((element) => {
+                  return element.read("base64").then((imageBuffer) => {
+                    const dataUrl = `data:${element.contentType};base64,${imageBuffer}`;
+                    const imgName = `docx_${file.name.replace(/\s+/g, '_')}_${Math.random().toString(36).substr(2, 5)}.png`;
+                    images[imgName] = dataUrl;
+                    return { src: dataUrl };
+                  });
+                })
+              });
+
+              const result = await mammoth.extractRawText({ arrayBuffer });
+              const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+              
+              setIdeSelectedFiles(prev => [...prev, {
+                data: encodedData,
+                mimeType: 'text/plain',
+                name: file.name
+              }]);
+              
+              if (Object.keys(images).length > 0) {
+                setSessionAssets(prev => ({ ...prev, ...images }));
+              }
+            } catch (err) {
+              console.error("DOCX extraction failed", err);
+              setAlertModal({ isOpen: true, message: "Failed to read DOCX file." });
+            }
+          };
+          reader.readAsArrayBuffer(file);
+          return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
           setIdeSelectedFiles(prev => [...prev, {
@@ -2721,6 +2877,55 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         return;
       }
 
+      if (file.type.startsWith('image/')) {
+        const imgReader = new FileReader();
+        imgReader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          setSessionAssets(prev => ({ ...prev, [file.name]: dataUrl }));
+        };
+        imgReader.readAsDataURL(file);
+      }
+
+      const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.endsWith('.docx');
+
+      if (isDocx) {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const arrayBuffer = event.target?.result as ArrayBuffer;
+          try {
+            const images: Record<string, string> = {};
+            await mammoth.convertToHtml({ arrayBuffer }, {
+              convertImage: mammoth.images.imgElement((element) => {
+                return element.read("base64").then((imageBuffer) => {
+                  const dataUrl = `data:${element.contentType};base64,${imageBuffer}`;
+                  const imgName = `docx_${file.name.replace(/\s+/g, '_')}_${Math.random().toString(36).substr(2, 5)}.png`;
+                  images[imgName] = dataUrl;
+                  return { src: dataUrl };
+                });
+              })
+            });
+
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            // Safe base64 encoding for browser
+            const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+            setSelectedFiles(prev => [...prev, {
+              data: encodedData, 
+              mimeType: 'text/plain',
+              name: file.name
+            }]);
+
+            if (Object.keys(images).length > 0) {
+              setSessionAssets(prev => ({ ...prev, ...images }));
+            }
+          } catch (err) {
+            console.error("DOCX extraction failed", err);
+            setAlertModal({ isOpen: true, message: "Failed to read DOCX file." });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+
       const reader = new FileReader();
       reader.onload = (event) => {
         const base64 = event.target?.result as string;
@@ -2744,9 +2949,14 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         if (file) {
           const reader = new FileReader();
           reader.onload = (event) => {
-            const base64 = event.target?.result as string;
+            const dataUrl = event.target?.result as string;
+            
+            if (file.type.startsWith('image/')) {
+              setSessionAssets(prev => ({ ...prev, [file.name || `pasted_${Date.now()}.png`]: dataUrl }));
+            }
+
             setSelectedFiles(prev => [...prev, {
-              data: base64.split(',')[1],
+              data: dataUrl.split(',')[1],
               mimeType: file.type || 'application/octet-stream',
               name: file.name || `pasted_file_${Date.now()}`
             }]);
@@ -2794,7 +3004,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
     <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
       <div className="flex flex-1 relative overflow-hidden">
       <ParticleBackground theme={theme} />
-      <CursorTrailCanvas theme={theme} color="hsla(183, 63%, 40%, 0.5)" />
+      <CursorTrailCanvas theme={theme} color={theme === 'dark' ? '#00ff9d' : '#006633'} />
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
@@ -2825,8 +3035,16 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         />
       )}
 
+      {/* Sidebar Overlay for Mobile */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className={`fixed md:relative top-0 bottom-0 left-0 w-[280px] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:hidden'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
+      <aside className={`fixed md:relative top-0 bottom-0 left-0 w-[280px] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:-translate-x-full md:absolute md:top-0 md:bottom-0 md:left-0 md:z-[60]'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
         <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
           <Search size={18} />
           <input 
@@ -2970,7 +3188,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 relative flex flex-col items-center justify-center">
+      <main className={`flex-1 relative flex flex-col ${view === 'home' || view === 'imagine' ? 'items-center justify-center' : 'items-stretch justify-start'} overflow-hidden`}>
         {/* Top Left Sidebar Toggle */}
         <div className="absolute top-5 left-6 z-20">
           <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition-all ${theme === 'dark' ? 'text-[#888] hover:bg-[#222] hover:text-white' : 'text-[#555] hover:bg-[#e0e0e0] hover:text-black'}`}>
@@ -2979,31 +3197,43 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
         </div>
 
         {/* Top Right Auth Buttons */}
-        <div className="absolute top-4 right-4 md:top-5 md:right-6 z-20 flex gap-2 md:gap-3 items-center">
-          <button 
-            onClick={() => { 
-              const newMode = !isPrivateChat;
-              setIsPrivateChat(newMode); 
-              setMessages([]); 
-              setCurrentConversationId(null); 
-              setView('home'); 
-            }} 
-            className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all flex items-center gap-1.5 md:gap-2 ${isPrivateChat ? (theme === 'dark' ? 'border-purple-500 text-purple-400 bg-purple-500/10' : 'border-purple-500 text-purple-600 bg-purple-500/10') : (theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent')}`}
-          >
-            <Lock size={14} /> <span className="hidden sm:inline">Private Chat</span>
-          </button>
-          {!user ? (
-            <>
-              <button onClick={() => setModals({...modals, signIn: true, signUp: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign in</button>
-              <button onClick={() => setModals({...modals, signUp: true, signIn: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign up</button>
-            </>
-          ) : null}
-        </div>
+        {view === 'home' && (
+          <div className="absolute top-4 right-4 md:top-5 md:right-6 z-20 flex gap-2 md:gap-3 items-center">
+            <button 
+              onClick={() => { 
+                const newMode = !isPrivateChat;
+                setIsPrivateChat(newMode); 
+                setMessages([]); 
+                setCurrentConversationId(null); 
+                setView('home'); 
+              }} 
+              className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all flex items-center gap-1.5 md:gap-2 ${isPrivateChat ? (theme === 'dark' ? 'border-purple-500 text-purple-400 bg-purple-500/10' : 'border-purple-500 text-purple-600 bg-purple-500/10') : (theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent')}`}
+            >
+              <Lock size={14} /> <span className="hidden sm:inline">Private Chat</span>
+            </button>
+            {!user ? (
+              <>
+                <button onClick={() => setModals({...modals, signIn: true, signUp: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign in</button>
+                <button onClick={() => setModals({...modals, signUp: true, signIn: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign up</button>
+              </>
+            ) : (
+               <div className="flex items-center gap-2">
+                  <div 
+                    onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
+                    className="w-9 h-9 rounded-full cursor-pointer flex items-center justify-center text-white font-bold text-xs overflow-hidden shrink-0 shadow-lg border-2 border-white/10"
+                    style={{ background: user && !user.profilePhoto ? user.avatarColor : '#444' }}
+                  >
+                    {user?.profilePhoto ? <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" /> : (user ? user.name.charAt(0) : 'U')}
+                  </div>
+               </div>
+            )}
+          </div>
+        )}
 
         {view === 'home' && (
-          <div className="text-center max-w-[800px] w-full px-6 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-            <h1 className={`text-[60px] sm:text-[100px] md:text-[140px] font-black tracking-tighter mb-6 md:mb-10 transition-all duration-500 cursor-default ${theme === 'dark' ? 'text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]' : 'text-black drop-shadow-[0_0_40px_rgba(0,0,0,0.1)] hover:drop-shadow-[0_0_60px_rgba(0,0,0,0.4)]'}`}>Xer0byte</h1>
-            <p className={`text-[20px] md:text-[26px] mb-10 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
+          <div className="text-center max-w-[800px] w-full px-6 animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
+            <h1 className={`text-[48px] sm:text-[100px] md:text-[140px] font-black tracking-tighter mb-4 md:mb-10 transition-all duration-500 cursor-default ${theme === 'dark' ? 'text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]' : 'text-black drop-shadow-[0_0_40px_rgba(0,0,0,0.1)] hover:drop-shadow-[0_0_60px_rgba(0,0,0,0.4)]'}`}>Xer0byte</h1>
+            <p className={`text-[18px] md:text-[26px] mb-8 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
             
             <div className="w-full max-w-3xl mx-auto mb-10 relative" ref={inputContainerRef}>
               {selectedFiles.length > 0 && (
@@ -3231,7 +3461,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
 
         {view === 'notebook' && (
           <div className="flex-1 flex flex-col h-full w-full overflow-hidden relative">
-             <NotebookUI theme={theme} />
+             <NotebookUI theme={theme} user={user} />
           </div>
         )}
 
@@ -3307,7 +3537,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                         )}
                         
                         {/* AI Message Actions */}
-                        <div className="absolute -bottom-10 left-0 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-2">
+                        <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
                           <button onClick={() => navigator.clipboard.writeText(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
                             <Copy size={14} />
                           </button>
@@ -4027,22 +4257,22 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                 <div className="flex items-center flex-shrink-0">
                   <button 
                     onClick={() => { setShowIdeHistory(!showIdeHistory); setShowIdeChat(false); setShowIdeDatabase(false); }} 
-                    className={`p-2 rounded-l-lg transition-colors border-r ${showIdeHistory ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'} ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}
+                    className={`p-1.5 sm:p-2 rounded-l-lg transition-colors border-r ${showIdeHistory ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'} ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}
                     title="History"
                   >
-                    <Clock size={18} />
+                    <Clock size={16} />
                   </button>
                   <button 
                     onClick={() => { setShowIdeDatabase(!showIdeDatabase); setShowIdeChat(false); setShowIdeHistory(false); }} 
-                    className={`p-2 rounded-r-lg transition-colors ${showIdeDatabase ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'}`}
+                    className={`p-1.5 sm:p-2 rounded-r-lg transition-colors ${showIdeDatabase ? (theme === 'dark' ? 'bg-[#333] text-[#00ff9d]' : 'bg-[#ddd] text-[#006633]') : 'hover:opacity-70'}`}
                     title="Database/Backend"
                   >
-                    <HardDrive size={18} />
+                    <HardDrive size={16} />
                   </button>
                 </div>
-                <div className="flex items-center gap-2 ml-1 min-w-0">
-                  <PenTool size={18} className="text-[#00ff9d] flex-shrink-0" /> 
-                  <h2 className="text-sm sm:text-lg font-bold truncate">Neural Sandbox</h2>
+                <div className="flex items-center gap-1.5 md:gap-2 ml-1 min-w-0">
+                  <PenTool size={16} className="text-[#00ff9d] flex-shrink-0" /> 
+                  <h2 className="text-[10px] sm:text-base font-bold truncate">Neural Sandbox</h2>
                 </div>
                 <div className={`ml-auto sm:ml-2 px-2 py-1 rounded-full border flex items-center gap-1 transition-all ${theme === 'dark' ? 'bg-[#111] border-[#333] hover:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] hover:border-[#999]'}`}>
                   <div className="relative flex items-center">
@@ -4051,15 +4281,87 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                       onChange={e => setCanvasLanguage(e.target.value)} 
                       className="bg-transparent text-[10px] sm:text-xs outline-none font-mono focus:text-[#00ff9d] appearance-none cursor-pointer pr-4"
                     >
-                      <optgroup label="Web">
-                        <option value="html">HTML/JS</option>
-                        <option value="typescript">TS/React</option>
+                      <optgroup label="Popular">
                         <option value="python">Python</option>
+                        <option value="javascript">JavaScript</option>
+                        <option value="typescript">TypeScript / React</option>
+                        <option value="html">HTML5 / Canvas</option>
+                        <option value="css">CSS3</option>
+                        <option value="java">Java</option>
+                        <option value="cpp">C++</option>
+                        <option value="csharp">C#</option>
                       </optgroup>
-                      <optgroup label="Others">
-                        <option value="javascript">JS</option>
+                      <optgroup label="Systems & App">
                         <option value="rust">Rust</option>
                         <option value="go">Go</option>
+                        <option value="c">C</option>
+                        <option value="swift">Swift</option>
+                        <option value="kotlin">Kotlin</option>
+                        <option value="objectivec">Objective-C</option>
+                        <option value="dart">Dart</option>
+                      </optgroup>
+                      <optgroup label="Web & Backend">
+                        <option value="php">PHP</option>
+                        <option value="ruby">Ruby</option>
+                        <option value="lua">Lua</option>
+                        <option value="perl">Perl</option>
+                        <option value="elixir">Elixir</option>
+                      </optgroup>
+                      <optgroup label="Data & Research">
+                        <option value="sql">SQL</option>
+                        <option value="r">R Language</option>
+                        <option value="julia">Julia</option>
+                        <option value="matlab">MATLAB</option>
+                        <option value="fortran">Fortran</option>
+                        <option value="bash">Bash / Shell</option>
+                        <option value="powershell">PowerShell</option>
+                      </optgroup>
+                      <optgroup label="Functional">
+                        <option value="haskell">Haskell</option>
+                        <option value="scala">Scala</option>
+                        <option value="clojure">Clojure</option>
+                        <option value="erlang">Erlang</option>
+                        <option value="fsharp">F#</option>
+                        <option value="ocaml">OCaml</option>
+                        <option value="lisp">Lisp</option>
+                        <option value="scheme">Scheme</option>
+                        <option value="prolog">Prolog</option>
+                      </optgroup>
+                      <optgroup label="Low Level & HW">
+                        <option value="assembly">Assembly</option>
+                        <option value="verilog">Verilog</option>
+                        <option value="vhdl">VHDL</option>
+                        <option value="ada">Ada</option>
+                        <option value="pascal">Pascal</option>
+                      </optgroup>
+                      <optgroup label="Docs & Config">
+                        <option value="markdown">Markdown</option>
+                        <option value="yaml">YAML</option>
+                        <option value="json">JSON</option>
+                        <option value="xml">XML</option>
+                        <option value="latex">LaTeX</option>
+                        <option value="solidity">Solidity</option>
+                      </optgroup>
+                      <optgroup label="Others & Fun">
+                        <option value="zig">Zig</option>
+                        <option value="nim">Nim</option>
+                        <option value="d">D Language</option>
+                        <option value="crystal">Crystal</option>
+                        <option value="groovy">Groovy</option>
+                        <option value="basic">BASIC</option>
+                        <option value="cobol">COBOL</option>
+                        <option value="brainfuck">Brainfuck</option>
+                      </optgroup>
+                      <optgroup label="Legacy & Niche">
+                        <option value="smalltalk">Smalltalk</option>
+                        <option value="foxpro">FoxPro</option>
+                        <option value="coldfusion">ColdFusion</option>
+                        <option value="actionscript">ActionScript</option>
+                        <option value="tcl">Tcl</option>
+                        <option value="objective-cpp">Objective-C++</option>
+                        <option value="awk">Awk</option>
+                        <option value="forth">Forth</option>
+                        <option value="apl">APL</option>
                       </optgroup>
                     </select>
                     <ChevronDown size={10} className="absolute right-0 pointer-events-none opacity-50" />
@@ -4117,9 +4419,9 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                     </button>
                     <button 
                       onClick={async () => {
-                        const newConv = await firestoreService.createConversation(user!.id, "New Sandbox Chat");
+                        const newConv = await firestoreService.createSandboxConversation(user!.id, "New Sandbox Chat");
                         const newConvId = newConv.id;
-                        setConversations(prev => [{
+                        setSandboxConversations(prev => [{
                           id: newConvId,
                           userId: user!.id,
                           title: "New Sandbox Chat",
@@ -4128,8 +4430,8 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                           isArchived: false,
                           isPinned: false
                         }, ...prev]);
-                        setCurrentConversationId(newConvId);
-                        setMessages([]);
+                        setCurrentIdeConversationId(newConvId);
+                        setIdeMessages([]);
                         setShowIdeChat(true);
                         setShowIdeHistory(false);
                       }}
@@ -4142,6 +4444,10 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
 
                   {showIdeChat && (
                     <div className="flex-1 flex flex-col min-h-0 relative">
+                      <div className="p-4 border-b flex items-center justify-between md:hidden">
+                        <span className="font-bold text-xs uppercase tracking-wider opacity-60">AI Chat</span>
+                        <button onClick={() => setShowIdeChat(false)} className="p-1"><X size={16}/></button>
+                      </div>
                       <div 
                         ref={ideMessagesContainerRef}
                         onScroll={handleIdeManualScroll}
@@ -4156,13 +4462,13 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                             <span className="text-[10px] font-bold">New message</span>
                           </button>
                         )}
-                        {messages.length === 0 ? (
+                        {ideMessages.length === 0 ? (
                           <div className="h-full flex flex-col items-center justify-center opacity-20 text-center p-6 space-y-3">
                             <PenTool size={40} />
                             <p className="text-xs font-medium">Ask AI to write some code or explain something!</p>
                           </div>
                         ) : (
-                          messages.map((msg, i) => (
+                          ideMessages.map((msg, i) => (
                             <div key={msg.id || i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                               <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs md:text-sm ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#00ff9d] text-black font-medium' : 'bg-black text-white') : (theme === 'dark' ? 'bg-[#222] text-[#ddd]' : 'bg-white border border-[#ddd] text-black shadow-sm')}`}>
                                 {msg.text.startsWith('[SANDBOX]') ? msg.text.replace('[SANDBOX]', '').trim() : msg.text}
@@ -4177,35 +4483,47 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
 
                   {showIdeHistory && (
                     <div className="flex-1 flex flex-col min-h-0">
-                      <div className="p-4 border-b font-bold flex justify-between items-center text-xs opacity-60">
-                        <span>Conversation History</span>
-                        <div className="flex items-center gap-4">
-                          <button 
-                            onClick={() => { setMessages([]); setCurrentConversationId(null); setShowIdeChat(true); }} 
-                            className="text-[#00ff9d] border border-[#00ff9d]/30 px-2 py-1 rounded hover:bg-[#00ff9d]/10 flex items-center gap-1.5"
-                          >
-                            <Plus size={12} /> <span className="text-[10px] font-bold uppercase tracking-wider">New Chat</span>
-                          </button>
-                          <button onClick={() => setShowIdeHistory(false)} className="md:hidden"><X size={14}/></button>
+                      <div className="p-4 border-b font-bold flex flex-col gap-2">
+                        <div className="flex justify-between items-center text-xs opacity-60">
+                          <span>Conversation History</span>
+                          <div className="flex items-center gap-4">
+                            <button 
+                              onClick={() => { setIdeMessages([]); setCurrentIdeConversationId(null); setShowIdeChat(true); }} 
+                              className="text-[#00ff9d] border border-[#00ff9d]/30 px-2 py-1 rounded hover:bg-[#00ff9d]/10 flex items-center gap-1.5"
+                            >
+                              <Plus size={12} /> <span className="text-[10px] font-bold uppercase tracking-wider">New Chat</span>
+                            </button>
+                            <button onClick={() => setShowIdeHistory(false)} className="md:hidden"><X size={14}/></button>
+                          </div>
+                        </div>
+                        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${theme === 'dark' ? 'bg-[#050505] border-[#222]' : 'bg-white border-[#ddd]'}`}>
+                          <Search size={12} className="opacity-40" />
+                          <input 
+                            type="text" 
+                            placeholder="Search sandbox..." 
+                            value={sandboxSearchQuery}
+                            onChange={(e) => setSandboxSearchQuery(e.target.value)}
+                            className="bg-transparent border-none outline-none w-full"
+                          />
                         </div>
                       </div>
                       <div className="flex-1 overflow-y-auto custom-scrollbar">
-                        {conversations.length === 0 ? (
+                        {sandboxConversations.filter(c => c.title.toLowerCase().includes(sandboxSearchQuery.toLowerCase())).length === 0 ? (
                           <div className="p-10 text-center opacity-30 text-xs italic">No conversations found.</div>
                         ) : (
-                          conversations.map((conv) => (
+                          sandboxConversations.filter(c => c.title.toLowerCase().includes(sandboxSearchQuery.toLowerCase())).map((conv) => (
                             <div 
                               key={conv.id} 
                               onClick={() => {
-                                setCurrentConversationId(conv.id);
+                                setCurrentIdeConversationId(conv.id);
                                 setShowIdeChat(true);
                                 setShowIdeHistory(false);
                               }}
-                              className={`p-4 border-b cursor-pointer transition-colors group ${currentConversationId === conv.id ? (theme === 'dark' ? 'bg-[#1a1a1a] border-l-4 border-l-[#00ff9d]' : 'bg-[#f0f0f0] border-l-4 border-l-[#006633]') : (theme === 'dark' ? 'border-[#222] hover:bg-[#111]' : 'border-[#eee] hover:bg-[#fafafa]')}`}
+                              className={`p-4 border-b cursor-pointer transition-colors group ${currentIdeConversationId === conv.id ? (theme === 'dark' ? 'bg-[#1a1a1a] border-l-4 border-l-[#00ff9d]' : 'bg-[#f0f0f0] border-l-4 border-l-[#006633]') : (theme === 'dark' ? 'border-[#222] hover:bg-[#111]' : 'border-[#eee] hover:bg-[#fafafa]')}`}
                             >
                               <div className="flex items-center gap-2 mb-1">
-                                <MessageSquare size={12} className={currentConversationId === conv.id ? "text-[#00ff9d]" : "opacity-40"} />
-                                <div className={`text-sm font-medium line-clamp-1 ${currentConversationId === conv.id ? "text-[#00ff9d]" : ""}`}>{conv.title}</div>
+                                <MessageSquare size={12} className={currentIdeConversationId === conv.id ? "text-[#00ff9d]" : "opacity-40"} />
+                                <div className={`text-sm font-medium line-clamp-1 ${currentIdeConversationId === conv.id ? "text-[#00ff9d]" : ""}`}>{conv.title}</div>
                               </div>
                               <div className="text-[10px] opacity-40">{new Date(conv.timestamp).toLocaleString()}</div>
                             </div>
@@ -4241,9 +4559,12 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                     <div className="flex-1 flex flex-col min-h-0">
                       <div className="p-4 border-b font-bold flex justify-between items-center text-xs opacity-60">
                         <span>Backend Cloud Services</span>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-2 h-2 rounded-full bg-[#00ff9d] animate-pulse"></div>
-                          <span className="text-[#00ff9d] uppercase">Online</span>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-[#00ff9d] animate-pulse"></div>
+                            <span className="text-[#00ff9d] uppercase">Online</span>
+                          </div>
+                          <button onClick={() => setShowIdeDatabase(false)} className="md:hidden"><X size={14}/></button>
                         </div>
                       </div>
                       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
@@ -4374,7 +4695,7 @@ Identity: Your name is strictly "Xer0byte". Do NOT reveal your creator's identit
                     {canvasLiveWeb ? (
                       <iframe 
                         title="Live Preview"
-                        srcDoc={canvasContent}
+                        srcDoc={processedSrcDoc}
                         className="w-full h-full border-none bg-white font-sans"
                         sandbox="allow-scripts allow-popups opacity-100"
                       />

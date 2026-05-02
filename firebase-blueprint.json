@@ -93,6 +93,47 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "plan"]
+    },
+    "Source": {
+      "title": "Notebook Source",
+      "description": "A source document in the neural notebook",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "type": { "type": "string", "enum": ["text", "pdf"] },
+        "summary": { "type": "string" },
+        "selected": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "content"]
+    },
+    "Note": {
+      "title": "Notebook Note",
+      "description": "A saved note in the neural notebook",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title"]
+    },
+    "NotebookMessage": {
+      "title": "Notebook Message",
+      "description": "A message in the neural notebook chat",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "role", "content"]
     }
   },
   "firestore": {
@@ -115,6 +156,18 @@
     "/users/{userId}/tasks/{taskId}": {
       "schema": "Task",
       "description": "User-specific tasks"
+    },
+    "/users/{userId}/sources/{sourceId}": {
+      "schema": "Source",
+      "description": "User-specific notebook sources"
+    },
+    "/users/{userId}/notes/{noteId}": {
+      "schema": "Note",
+      "description": "User-specific notebook notes"
+    },
+    "/users/{userId}/notebookMessages/{messageId}": {
+      "schema": "NotebookMessage",
+      "description": "User-specific notebook chat messages"
     },
     "/users/{userId}/upgradeRequests/{requestId}": {
       "schema": "UpgradeRequest",

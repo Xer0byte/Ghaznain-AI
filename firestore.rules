@@ -51,6 +51,11 @@ service cloud.firestore {
     }
 
     // --- 3. Resource Rules ---
+    // Connection test document (publicly readable for health checks)
+    match /test/connection {
+      allow read: if true;
+    }
+
     // Top-level message rules for better reliability
     match /users/{uid}/conversations/{cid}/messages/{mid} {
       allow read, write: if request.auth.uid == uid || isAdmin();
@@ -72,38 +77,54 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
       allow create: if isOwner(userId) && isValidUser(incoming());
       allow update: if isAdmin() || (isOwner(userId) && !affectedKeys().hasAny(['role', 'plan']));
 
-        match /conversations/{convId} {
-        allow read: if isOwner(userId) || isAdmin();
-        allow create: if isOwner(userId) && isValidConversation(incoming());
-        allow update: if isOwner(userId) || isAdmin();
-        allow delete: if isOwner(userId) || isAdmin();
+      match /conversations/{convId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+        match /messages/{msgId} {
+          allow read, write: if isOwner(userId) || isAdmin();
+        }
       }
 
-      match /projects/{projectId} {
-         allow read, write: if isOwner(userId) || isAdmin();
+      match /sandboxConversations/{convId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+        match /messages/{msgId} {
+          allow read, write: if isOwner(userId) || isAdmin();
+        }
       }
 
       match /tasks/{taskId} {
          allow read, write: if isOwner(userId) || isAdmin();
       }
 
+      match /projects/{projectId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /sources/{sourceId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /notes/{noteId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /notebookMessages/{msgId} {
+         allow read, write: if isOwner(userId) || isAdmin();
+      }
+      
       match /upgradeRequests/{reqId} {
-         allow read: if isOwner(userId) || isAdmin();
-         allow create: if isOwner(userId);
-         allow update: if isAdmin();
+        allow list: if isAdmin();
+        allow get: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId);
+        allow update: if isAdmin();
+        allow delete: if isAdmin();
       }
     }
-    
-    match /upgradeRequests/{reqId} {
-      allow list: if isAdmin();
-      allow get: if isAdmin() || (isSignedIn() && existing().userId == request.auth.uid);
-      allow create: if isSignedIn() && incoming().userId == request.auth.uid;
-      allow update: if isAdmin();
-      allow delete: if isAdmin();
+
+    match /databases/{database}/documents/upgradeRequests/{reqId} {
+      allow list, get, create, update, delete: if false; // Only use user-specific path
     }
   }
 }

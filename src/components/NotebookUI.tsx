@@ -2,6 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Book, Save, Trash2, Edit2, Plus, FileText, Link, MessageSquare, BookOpen, ChevronLeft, ChevronRight, Send, Sparkles, Check, Paperclip, X, Download, Share2, Info, Lightbulb, Music, Share, Copy } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { generateContentStreamWithRetry, generateContentWithRetry } from '../lib/gemini';
+import * as pdfjsLib from 'pdfjs-dist';
+import { firestoreService } from '../services/firestoreService';
+
+// Set up PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 interface Source {
   id: string;
@@ -24,7 +29,7 @@ interface Message {
   content: string;
 }
 
-export default function NotebookUI({ theme }: { theme?: string }) {
+export default function NotebookUI({ theme, user }: { theme?: string, user?: any }) {
   const [sources, setSources] = useState<Source[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -36,12 +41,51 @@ export default function NotebookUI({ theme }: { theme?: string }) {
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'sources' | 'notes'>('chat');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [showSources, setShowSources] = useState(true);
   const [showGuide, setShowGuide] = useState(true);
   const [notebookSummary, setNotebookSummary] = useState('');
   
   const chatEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
+
+  // Responsive logic
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 1024) {
+        setShowSources(false);
+        setShowGuide(false);
+      } else {
+        setShowSources(true);
+        setShowGuide(true);
+      }
+    };
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Firebase Subscriptions
+  useEffect(() => {
+    if (!user) return;
+    
+    // Subscribe to cloud data
+    const unsubSources = firestoreService.subscribeToSources(user.id, (data) => {
+      setSources(data as Source[]);
+    });
+    const unsubNotes = firestoreService.subscribeToNotes(user.id, (data) => {
+      setNotes(data as Note[]);
+    });
+    const unsubMessages = firestoreService.subscribeToNotebookMessages(user.id, (data) => {
+      setMessages(data as Message[]);
+    });
+
+    return () => {
+      unsubSources();
+      unsubNotes();
+      unsubMessages();
+    };
+  }, [user]);
 
   useEffect(() => {
     chatEndRef.current?.scrollTo({ top: chatEndRef.current.scrollHeight, behavior: 'smooth' });
@@ -68,19 +112,25 @@ export default function NotebookUI({ theme }: { theme?: string }) {
     }
   };
 
-  const handleAddSource = () => {
+  const handleAddSource = async () => {
     if (!newSourceTitle.trim() || !newSourceContent.trim()) return;
     
-    const newSource: Source = {
-      id: Date.now().toString(),
+    const newSource: Partial<Source> = {
       title: newSourceTitle,
       content: newSourceContent,
       type: 'text',
       selected: true
     };
     
-    setSources(prev => [...prev, newSource]);
-    generateSourceSummary(newSource);
+    if (user) {
+      const saved = await firestoreService.addSource(user.id, newSource);
+      if (saved) generateSourceSummary(saved as Source);
+    } else {
+      const localSource = { ...newSource, id: Date.now().toString() } as Source;
+      setSources(prev => [...prev, localSource]);
+      generateSourceSummary(localSource);
+    }
+    
     setIsAddingSource(false);
     setNewSourceTitle('');
     setNewSourceContent('');
@@ -93,14 +143,71 @@ export default function NotebookUI({ theme }: { theme?: string }) {
       return;
     }
 
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const typedarray = new Uint8Array(event.target?.result as ArrayBuffer);
+        try {
+          const loadingTask = pdfjsLib.getDocument(typedarray);
+          const pdf = await loadingTask.promise;
+          let fullText = '';
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item: any) => 'str' in item ? item.str : '').join(' ');
+            fullText += pageText + '\n';
+          }
+          
+          const title = file.name.replace(/\.[^/.]+$/, "");
+          const newSource: Partial<Source> = {
+            title,
+            content: fullText.trim() || "No text could be extracted from this PDF.",
+            type: 'pdf',
+            selected: true
+          };
+
+          if (user) {
+            const saved = await firestoreService.addSource(user.id, newSource);
+            if (saved) generateSourceSummary(saved as Source);
+          } else {
+            const localSource = { ...newSource, id: Date.now().toString() } as Source;
+            setSources(prev => [...prev, localSource]);
+            generateSourceSummary(localSource);
+          }
+          setIsAddingSource(false);
+        } catch (err) {
+          console.error("PDF read error:", err);
+          alert("Could not read this PDF. It may be password protected or corrupted.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      setNewSourceTitle(file.name.replace(/\.[^/.]+$/, ""));
-      setNewSourceContent(content);
+      const title = file.name.replace(/\.[^/.]+$/, "");
+      
+      const newSource: Partial<Source> = {
+        title,
+        content: content,
+        type: 'text',
+        selected: true
+      };
+      
+      if (user) {
+        firestoreService.addSource(user.id, newSource).then(saved => {
+          if (saved) generateSourceSummary(saved as Source);
+        });
+      } else {
+        const localSource = { ...newSource, id: Date.now().toString() } as Source;
+        setSources(prev => [...prev, localSource]);
+        generateSourceSummary(localSource);
+      }
+      setIsAddingSource(false);
     };
     
-    // Support more extensions by trying to read as text
     reader.readAsText(file);
   };
 
@@ -129,16 +236,24 @@ export default function NotebookUI({ theme }: { theme?: string }) {
   };
 
   const generateSourceSummary = async (source: Source) => {
-    setSources(prev => prev.map(s => s.id === source.id ? { ...s, summary: 'Generating summary... ⚡' } : s));
+    const updateLocalOrCloud = (summary: string) => {
+      if (user) {
+        firestoreService.updateSource(user.id, source.id, { summary });
+      } else {
+        setSources(prev => prev.map(s => s.id === source.id ? { ...s, summary } : s));
+      }
+    };
+
+    updateLocalOrCloud('Generating summary... ⚡');
     try {
       const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [{ role: 'user', parts: [{ text: `Summarize this specific document in 3-5 bullet points focusing on key takeaways. Use Markdown format. Title: ${source.title}\n\nCONTENT:\n${source.content}` }] }]
       });
-      setSources(prev => prev.map(s => s.id === source.id ? { ...s, summary: response.text } : s));
+      updateLocalOrCloud(response.text || '');
     } catch (err) {
       console.error("Source summary error:", err);
-      setSources(prev => prev.map(s => s.id === source.id ? { ...s, summary: 'Failed to generate summary. You can still chat with this source.' } : s));
+      updateLocalOrCloud('Failed to generate summary. You can still chat with this source.');
     }
   };
 
@@ -147,7 +262,13 @@ export default function NotebookUI({ theme }: { theme?: string }) {
 
     const userMsg = input.trim();
     setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    
+    if (user) {
+      await firestoreService.addNotebookMessage(user.id, { role: 'user', content: userMsg });
+    } else {
+      setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+    }
+    
     setIsLoading(true);
 
     try {
@@ -178,6 +299,10 @@ export default function NotebookUI({ theme }: { theme?: string }) {
           });
         }
       }
+
+      if (user && fullText) {
+        await firestoreService.addNotebookMessage(user.id, { role: 'assistant', content: fullText });
+      }
     } catch (err) {
       console.error("Chat error:", err);
       setMessages(prev => [...prev, { role: 'assistant', content: "An error occurred while linking to the neural source. Please try again." }]);
@@ -187,16 +312,34 @@ export default function NotebookUI({ theme }: { theme?: string }) {
   };
 
   const toggleSourceSelection = (id: string) => {
-    setSources(sources.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
+    const source = sources.find(s => s.id === id);
+    if (!source) return;
+    
+    if (user) {
+      firestoreService.updateSource(user.id, id, { selected: !source.selected });
+    } else {
+      setSources(sources.map(s => s.id === id ? { ...s, selected: !s.selected } : s));
+    }
   };
 
   const generateAudioOverview = async () => {
     if (sources.length === 0) return;
     setIsLoading(true);
     try {
-      const { generateTTS } = await import('../lib/gemini');
-      const summary = notebookSummary || "Please add more sources to generate a full overview.";
-      const audioUrl = await generateTTS(`Greetings! Here is your neural notebook overview. ${summary.substring(0, 1000)}`);
+      const { generateTTS, generateContentWithRetry } = await import('../lib/gemini');
+      
+      const combinedText = sources.map(s => `${s.title}: ${s.content.substring(0, 1000)}`).join('\n\n');
+      
+      const scriptResponse = await generateContentWithRetry({
+        model: "gemini-3-flash-preview",
+        contents: [{ 
+          role: 'user', 
+          parts: [{ text: `Create a professional podcast-style "Conversational Briefing" based on these sources. Two hosts, Alex and Sam, are discussing the key takeaways. Make it engaging, insightful, and flow naturally. Return ONLY the script text without speaker names or metadata.\n\nSOURCES:\n${combinedText}` }] 
+        }]
+      });
+
+      const script = scriptResponse.text || notebookSummary || "Please add more sources to generate a full overview.";
+      const audioUrl = await generateTTS(script.substring(0, 2000));
       const audio = new Audio(audioUrl);
       audio.play();
     } catch (err) {
@@ -226,17 +369,33 @@ export default function NotebookUI({ theme }: { theme?: string }) {
         </div>
       )}
       
+      {/* Mobile Sidebar Overlays */}
+      {(showSources || showGuide) && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity" 
+          onClick={() => {
+            setShowSources(false);
+            setShowGuide(false);
+          }}
+        />
+      )}
+
       {/* Sources Sidebar */}
-      <div className={`w-72 flex flex-col border-r shrink-0 ${isDark ? 'bg-[#1a1a1a] border-[#222]' : 'bg-white border-[#e0e0e0]'}`}>
+      <div className={`fixed lg:relative inset-y-0 left-0 z-50 w-72 flex flex-col border-r shrink-0 transition-transform duration-300 transform ${showSources ? 'translate-x-0' : '-translate-x-full lg:hidden'} ${isDark ? 'bg-[#1a1a1a] border-[#222]' : 'bg-white border-[#e0e0e0]'}`}>
         <div className="p-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2 font-semibold">
             <BookOpen size={18} className="text-blue-500" />
             <span>Sources</span>
             <span className="text-xs bg-blue-500/10 text-blue-500 px-1.5 py-0.5 rounded-full">{sources.length}</span>
           </div>
-          <button onClick={() => setIsAddingSource(true)} className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors`}>
-            <Plus size={18} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setIsAddingSource(true)} className={`p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors`}>
+              <Plus size={18} />
+            </button>
+            <button onClick={() => setShowSources(false)} className="lg:hidden p-1.5 hover:bg-gray-100 dark:hover:bg-white/5 rounded-lg">
+              <X size={18} />
+            </button>
+          </div>
         </div>
         
         <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
@@ -271,7 +430,11 @@ export default function NotebookUI({ theme }: { theme?: string }) {
                     {s.type === 'pdf' ? 'PDF' : 'Original Text'}
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); setSources(sources.filter(src => src.id !== s.id)); }} className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity">
+                <button onClick={(e) => { 
+                  e.stopPropagation(); 
+                  if (user) { firestoreService.deleteSource(user.id, s.id); } 
+                  else { setSources(sources.filter(src => src.id !== s.id)); }
+                }} className="p-1 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -292,36 +455,43 @@ export default function NotebookUI({ theme }: { theme?: string }) {
       <div className="flex-1 flex flex-col min-w-0 bg-transparent">
         
         {/* Top Navbar */}
-        <div className="h-14 border-b flex items-center justify-between px-6 shrink-0 bg-white dark:bg-[#1a1a1a]">
-          <div className="flex items-center gap-6">
+        <div className="h-14 border-b flex items-center justify-between px-4 md:px-6 shrink-0 bg-white dark:bg-[#1a1a1a]">
+          <div className="flex items-center gap-2 md:gap-6">
+            <button 
+              onClick={() => setShowSources(!showSources)}
+              className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors ${showSources ? 'text-blue-500 bg-blue-500/10' : 'opacity-60'}`}
+            >
+              <BookOpen size={18} />
+            </button>
+            <div className="h-6 w-px bg-gray-200 dark:bg-white/10 hidden sm:block" />
             <button 
               onClick={() => setActiveTab('chat')}
-              className={`text-sm font-semibold relative py-4 transition-colors ${activeTab === 'chat' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
+              className={`text-xs md:text-sm font-semibold relative py-4 transition-colors ${activeTab === 'chat' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
             >
               Chat
               {activeTab === 'chat' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />}
             </button>
             <button 
               onClick={() => setActiveTab('sources')}
-              className={`text-sm font-semibold relative py-4 transition-colors ${activeTab === 'sources' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
+              className={`text-xs md:text-sm font-semibold relative py-4 transition-colors ${activeTab === 'sources' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
             >
-              Document View
+              Docs
               {activeTab === 'sources' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />}
             </button>
             <button 
               onClick={() => setActiveTab('notes')}
-              className={`text-sm font-semibold relative py-4 transition-colors ${activeTab === 'notes' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
+              className={`text-xs md:text-sm font-semibold relative py-4 transition-colors ${activeTab === 'notes' ? 'text-blue-500' : 'opacity-60 hover:opacity-100'}`}
             >
-              Saved Notes
+              Notes
               {activeTab === 'notes' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />}
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 md:gap-2">
              <button onClick={() => setShowGuide(!showGuide)} className={`p-2 rounded-lg transition-colors ${showGuide ? 'bg-blue-500/10 text-blue-500' : 'hover:bg-gray-100 dark:hover:bg-white/5'}`}>
-               <Info size={20} />
+               <Sparkles size={20} />
              </button>
-             <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+             <button className="hidden sm:block p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
                <Share2 size={20} />
              </button>
           </div>
@@ -330,7 +500,7 @@ export default function NotebookUI({ theme }: { theme?: string }) {
         {/* Dynamic View Area */}
         <div className="flex-1 relative overflow-hidden flex min-h-0">
           
-          <div className={`flex-1 flex flex-col min-w-0 transition-all ${showGuide ? 'mr-0' : ''}`}>
+          <div className={`flex-1 flex flex-col min-w-0 transition-all ${showGuide ? 'lg:mr-0' : ''}`}>
              
              {activeTab === 'chat' && (
                <div className="flex-1 flex flex-col min-h-0">
@@ -375,7 +545,11 @@ export default function NotebookUI({ theme }: { theme?: string }) {
                             {msg.role === 'assistant' && (
                               <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/5 flex gap-2">
                                 <button 
-                                  onClick={() => setNotes([{ id: Date.now().toString(), title: 'Chat Insight', content: msg.content }, ...notes])}
+                                  onClick={() => {
+                                   const newNote = { title: 'Chat Insight', content: msg.content };
+                                   if (user) { firestoreService.addNote(user.id, newNote); }
+                                   else { setNotes([{ id: Date.now().toString(), ...newNote }, ...notes]); }
+                                 }}
                                   className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
                                 >
                                   <Save size={10} /> Save to Notes
@@ -490,7 +664,11 @@ export default function NotebookUI({ theme }: { theme?: string }) {
                     <div className="flex items-center justify-between">
                       <h2 className="text-2xl font-bold">Your Saved Notes</h2>
                       <button 
-                        onClick={() => setNotes([{ id: Date.now().toString(), title: 'New Note', content: '' }, ...notes])}
+                        onClick={() => {
+                          const newNote = { title: 'New Note', content: '' };
+                          if (user) { firestoreService.addNote(user.id, newNote); }
+                          else { setNotes([{ id: Date.now().toString(), ...newNote }, ...notes]); }
+                        }}
                         className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-500/20"
                       >
                         <Plus size={18} /> New Note
@@ -509,17 +687,26 @@ export default function NotebookUI({ theme }: { theme?: string }) {
                              <div className="flex justify-between items-start mb-3">
                                <input 
                                  value={note.title}
-                                 onChange={(e) => setNotes(notes.map(n => n.id === note.id ? { ...n, title: e.target.value } : n))}
+                                 onChange={(e) => {
+                                  if (user) { firestoreService.updateNote(user.id, note.id, { title: e.target.value }); }
+                                  else { setNotes(notes.map(n => n.id === note.id ? { ...n, title: e.target.value } : n)); }
+                                }}
                                  placeholder="Note Title"
                                  className="font-bold bg-transparent border-none outline-none text-lg flex-1 mr-2"
                                />
-                               <button onClick={() => setNotes(notes.filter(n => n.id !== note.id))} className="opacity-0 group-hover:opacity-60 hover:opacity-100 hover:text-red-500 transition-all">
+                               <button onClick={() => {
+                                if (user) { firestoreService.deleteNote(user.id, note.id); }
+                                else { setNotes(notes.filter(n => n.id !== note.id)); }
+                              }} className="opacity-0 group-hover:opacity-60 hover:opacity-100 hover:text-red-500 transition-all">
                                  <Trash2 size={16} />
                                </button>
                              </div>
                              <textarea 
                                value={note.content}
-                               onChange={(e) => setNotes(notes.map(n => n.id === note.id ? { ...n, content: e.target.value } : n))}
+                               onChange={(e) => {
+                                 if (user) { firestoreService.updateNote(user.id, note.id, { content: e.target.value }); }
+                                 else { setNotes(notes.map(n => n.id === note.id ? { ...n, content: e.target.value } : n)); }
+                               }}
                                placeholder="Start capturing your thoughts..."
                                className="w-full bg-transparent border-none outline-none text-sm opacity-70 min-h-[120px] resize-none leading-relaxed"
                              />
@@ -542,13 +729,13 @@ export default function NotebookUI({ theme }: { theme?: string }) {
 
           {/* Notebook Guide / Overview Panel (Right Sidebar) */}
           {showGuide && (
-            <div className={`w-80 border-l flex flex-col shrink-0 animate-in slide-in-from-right-2 ${isDark ? 'bg-[#1a1a1a] border-[#222]' : 'bg-white border-[#e0e0e0]'}`}>
+            <div className={`fixed lg:relative inset-y-0 right-0 z-50 w-full sm:w-80 lg:w-80 border-l flex flex-col shrink-0 transition-all duration-300 transform ${showGuide ? 'translate-x-0' : 'translate-x-full lg:hidden'} ${isDark ? 'bg-[#1a1a1a] border-[#222]' : 'bg-white border-[#e0e0e0]'}`}>
                <div className="p-4 border-b flex items-center justify-between">
                  <div className="flex items-center gap-2 font-bold text-sm tracking-tight">
                     <Sparkles size={16} className="text-blue-500" />
                     <span>Neural Guide</span>
                  </div>
-                 <button onClick={() => setShowGuide(false)} className="opacity-50 hover:opacity-100"><X size={18}/></button>
+                 <button onClick={() => setShowGuide(false)} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10"><X size={18}/></button>
                </div>
                <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
                   <div className="space-y-4">

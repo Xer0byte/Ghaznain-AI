@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality } from '@google/genai';
+import { GoogleGenAI, Modality, ThinkingLevel } from '@google/genai';
 
 let googleAiClient: GoogleGenAI | null = null;
 function getAiClient() {
@@ -19,6 +19,16 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   const ai = getAiClient();
   let lastError: any = null;
   
+  // Apply ThinkingLevel speed optimization if not specified
+  if (config.model.includes('gemini-3')) {
+    if (!config.config) config.config = {};
+    if (!config.config.thinkingConfig) {
+      config.config.thinkingConfig = { 
+        thinkingLevel: config.model.includes('flash') ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW 
+      };
+    }
+  }
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       if (i === maxRetries - 1) {
@@ -52,6 +62,16 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
   let lastError: any = null;
   
+  // Apply ThinkingLevel speed optimization if not specified
+  if (config.model.includes('gemini-3')) {
+    if (!config.config) config.config = {};
+    if (!config.config.thinkingConfig) {
+      config.config.thinkingConfig = { 
+        thinkingLevel: config.model.includes('flash') ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW 
+      };
+    }
+  }
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       // If we are on the last retry and it's a 429, try falling back to a more available model

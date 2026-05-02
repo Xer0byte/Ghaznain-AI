@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const getEnvVar = (key: string) => {
@@ -31,5 +31,21 @@ const finalConfig = {
 const app = initializeApp(finalConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, finalConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
+
+// CRITICAL CONSTRAINT: When the application initially boots, call getFromServer to test the connection.
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connected successfully.");
+  } catch (error: any) {
+    if (error.message && error.message.includes('the client is offline')) {
+      console.error("Firestore Error: The client is offline. Please check your Firebase configuration or internet connection.");
+    } else {
+      console.error("Firestore Connection Test failed:", error.message);
+    }
+  }
+}
+testConnection();
+
 export { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut };
 

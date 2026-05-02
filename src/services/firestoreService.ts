@@ -294,6 +294,196 @@ export const firestoreService = {
     }
   },
 
+  // Notebook Sources
+  subscribeToSources(userId: string, callback: (sources: any[]) => void) {
+    const path = `users/${userId}/sources`;
+    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const sources = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(sources);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async addSource(userId: string, source: any) {
+    const path = `users/${userId}/sources`;
+    try {
+      const data = {
+        ...source,
+        userId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, path), data);
+      return { id: docRef.id, ...data };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
+  async updateSource(userId: string, sourceId: string, data: any) {
+    const path = `users/${userId}/sources/${sourceId}`;
+    try {
+      await setDoc(doc(db, path), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  },
+
+  async deleteSource(userId: string, sourceId: string) {
+    const path = `users/${userId}/sources/${sourceId}`;
+    try {
+      await deleteDoc(doc(db, path));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
+  // Notebook Notes
+  subscribeToNotes(userId: string, callback: (notes: any[]) => void) {
+    const path = `users/${userId}/notes`;
+    const q = query(collection(db, path), orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const notes = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(notes);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async addNote(userId: string, note: any) {
+    const path = `users/${userId}/notes`;
+    try {
+      const data = {
+        ...note,
+        userId,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, path), data);
+      return { id: docRef.id, ...data };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
+  async updateNote(userId: string, noteId: string, data: any) {
+    const path = `users/${userId}/notes/${noteId}`;
+    try {
+      await setDoc(doc(db, path), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  },
+
+  async deleteNote(userId: string, noteId: string) {
+    const path = `users/${userId}/notes/${noteId}`;
+    try {
+      await deleteDoc(doc(db, path));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
+  // Notebook Messages (specific to the notebook view if needed, or we reuse global)
+  subscribeToNotebookMessages(userId: string, callback: (msgs: any[]) => void) {
+    const path = `users/${userId}/notebookMessages`;
+    const q = query(collection(db, path), orderBy('timestamp', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(msgs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async addNotebookMessage(userId: string, message: any) {
+    const path = `users/${userId}/notebookMessages`;
+    try {
+      const data = {
+        ...message,
+        userId,
+        timestamp: serverTimestamp()
+      };
+      await addDoc(collection(db, path), data);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
+  async clearNotebookMessages(userId: string) {
+    const path = `users/${userId}/notebookMessages`;
+    try {
+      const q = query(collection(db, path));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
+  // Sandbox Conversations (to isolate IDE from main chat)
+  subscribeToSandboxConversations(userId: string, callback: (convs: any[]) => void) {
+    const path = `users/${userId}/sandboxConversations`;
+    const q = query(collection(db, path), orderBy('updatedAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
+      const convs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(convs);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async createSandboxConversation(userId: string, title: string = 'New Sandbox Chat') {
+    const path = `users/${userId}/sandboxConversations`;
+    try {
+      const data = {
+        userId,
+        title,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      const docRef = await addDoc(collection(db, path), data);
+      return { id: docRef.id, ...data };
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
+  subscribeToSandboxMessages(userId: string, conversationId: string, callback: (messages: any[]) => void) {
+    const path = `users/${userId}/sandboxConversations/${conversationId}/messages`;
+    const q = query(collection(db, path), orderBy('timestamp', 'asc'));
+    return onSnapshot(q, (snapshot) => {
+      const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      callback(messages);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+  },
+
+  async addSandboxMessage(userId: string, conversationId: string, message: { role: string, text: string }) {
+    const path = `users/${userId}/sandboxConversations/${conversationId}/messages`;
+    try {
+      const data = {
+        ...message,
+        userId,
+        conversationId,
+        timestamp: serverTimestamp()
+      };
+      await addDoc(collection(db, path), data);
+      // Update parent conversation updatedAt
+      const convPath = `users/${userId}/sandboxConversations/${conversationId}`;
+      await setDoc(doc(db, convPath), { updatedAt: serverTimestamp() }, { merge: true });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
+  },
+
   // Subscriptions / Upgrades
   async submitUpgradeRequest(userId: string, data: any) {
     const userPath = `users/${userId}/upgradeRequests`;
