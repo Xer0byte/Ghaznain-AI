@@ -2,7 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Book, Save, Trash2, Edit2, Plus, FileText, Link, MessageSquare, BookOpen, ChevronLeft, ChevronRight, Send, Sparkles, Check, Paperclip, X, Download, Share2, Info, Lightbulb, Music, Share, Copy } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { generateContentStreamWithRetry, generateContentWithRetry } from '../lib/gemini';
+import JSZip from 'jszip';
+import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
+import { createExtractorFromData } from 'unrar-js';
 import { firestoreService } from '../services/firestoreService';
 
 // Set up PDF.js worker
@@ -46,6 +49,8 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   const [notebookSummary, setNotebookSummary] = useState('');
   
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const isSendingRef = useRef(false);
+  const lastSendTimeRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
 
@@ -136,14 +141,176 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     setNewSourceContent('');
   };
 
-  const processFile = (file: File) => {
+  const addSourceToState = async (title: string, content: string, type: 'text' | 'pdf' | 'link') => {
+    const newSource: Partial<Source> = {
+      title,
+      content,
+      type,
+      selected: true
+    };
+    
+    if (user) {
+      const saved = await firestoreService.addSource(user.id, newSource);
+      if (saved) generateSourceSummary(saved as Source);
+    } else {
+      const localSource = { ...newSource, id: Date.now().toString() + Math.random().toString(36).substr(2, 9) } as Source;
+      setSources(prev => [...prev, localSource]);
+      generateSourceSummary(localSource);
+    }
+  };
+
+  const processFile = async (file: File) => {
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert("File is too large. Please upload files under 5MB.");
+    if (file.size > 10 * 1024 * 1024) {
+      alert("File is too large. Please upload files under 10MB.");
       return;
     }
 
-    if (file.name.toLowerCase().endsWith('.pdf')) {
+    const fileName = file.name.toLowerCase();
+
+    // Support for RAR files
+    if (fileName.endsWith('.rar')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const data = event.target?.result as ArrayBuffer;
+          const extractor = await createExtractorFromData(new Uint8Array(data));
+          const list = extractor.getFileList();
+          const arcFiles = Array.from(list.fileHeaders);
+          
+          let count = 0;
+          for (const header of arcFiles as any[]) {
+            if (header.flags.directory) continue;
+            
+            const extracted = extractor.extractFiles([header.name]);
+            const fileData = extracted.files[0];
+            if (!fileData) continue;
+
+            const entryName = header.name.toLowerCase();
+            const title = header.name.split(/[/\\]/).pop() || header.name;
+            const uint8 = fileData.extract[1]; // The actual data
+
+            if (entryName.endsWith('.pdf')) {
+               try {
+                  const loadingTask = pdfjsLib.getDocument(uint8);
+                  const pdf = await loadingTask.promise;
+                  let fullText = '';
+                  for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    const pageText = textContent.items.map((item: any) => 'str' in item ? item.str : '').join(' ');
+                    fullText += pageText + '\n';
+                  }
+                  await addSourceToState(title, fullText.trim() || `[PDF Content Empty for ${title}]`, 'pdf');
+                  count++;
+               } catch (e) { console.error("RAR PDF extraction error", e); }
+            } else if (entryName.endsWith('.docx')) {
+               try {
+                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.buffer });
+                  await addSourceToState(title, result.value, 'text');
+                  count++;
+               } catch (e) { console.error("RAR DOCX extraction error", e); }
+            } else {
+               // Try reading as text (greedy)
+               const text = new TextDecoder().decode(uint8);
+               // Simple text check: no null characters in first 1000 chars
+               if (!text.substring(0, 1000).includes('\0')) {
+                  await addSourceToState(title, text, 'text');
+                  count++;
+               }
+            }
+          }
+          if (count === 0) alert("No readable files found in RAR.");
+          setIsAddingSource(false);
+        } catch (err) {
+          console.error("RAR read error:", err);
+          alert("Could not read this RAR file. Ensure it's not password protected.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    // Support for ZIP files
+    if (fileName.endsWith('.zip')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const zipData = event.target?.result as ArrayBuffer;
+          const zip = await JSZip.loadAsync(zipData);
+          
+          let count = 0;
+          for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+            if (zipEntry.dir) continue;
+            
+            const entryName = zipEntry.name.toLowerCase();
+            const title = zipEntry.name.split('/').pop() || zipEntry.name;
+
+            // Greedy processing for ZIP
+            if (entryName.endsWith('.pdf')) {
+              const pdfData = await zipEntry.async("uint8array");
+              try {
+                const loadingTask = pdfjsLib.getDocument(pdfData);
+                const pdf = await loadingTask.promise;
+                let fullText = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                  const page = await pdf.getPage(i);
+                  const textContent = await page.getTextContent();
+                  const pageText = textContent.items.map((item: any) => 'str' in item ? item.str : '').join(' ');
+                  fullText += pageText + '\n';
+                }
+                await addSourceToState(title, fullText.trim() || `No text extracted from ${title}`, 'pdf');
+                count++;
+              } catch (err) { console.error(`Error reading PDF ${title} from ZIP:`, err); }
+            } else if (entryName.endsWith('.docx')) {
+              const docxData = await zipEntry.async("arraybuffer");
+              try {
+                const result = await mammoth.extractRawText({ arrayBuffer: docxData });
+                await addSourceToState(title, result.value, 'text');
+                count++;
+              } catch (e) { console.error(`Error reading DOCX ${title} from ZIP:`, e); }
+            } else {
+              // Try reading as text
+              const content = await zipEntry.async("string");
+              if (!content.substring(0, 1000).includes('\0')) {
+                await addSourceToState(title, content, 'text');
+                count++;
+              }
+            }
+          }
+          if (count === 0) {
+            alert("No readable files found in ZIP.");
+          }
+          setIsAddingSource(false);
+        } catch (err) {
+          console.error("ZIP read error:", err);
+          alert("Could not read this ZIP file.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    // Support for DOCX files
+    if (fileName.endsWith('.docx')) {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const arrayBuffer = event.target?.result as ArrayBuffer;
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          const title = file.name.replace(/\.[^/.]+$/, "");
+          await addSourceToState(title, result.value, 'text');
+          setIsAddingSource(false);
+        } catch (err) {
+          console.error("DOCX read error:", err);
+          alert("Could not read this DOCX file.");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    if (fileName.endsWith('.pdf')) {
       const reader = new FileReader();
       reader.onload = async (event) => {
         const typedarray = new Uint8Array(event.target?.result as ArrayBuffer);
@@ -159,21 +326,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
           }
           
           const title = file.name.replace(/\.[^/.]+$/, "");
-          const newSource: Partial<Source> = {
-            title,
-            content: fullText.trim() || "No text could be extracted from this PDF.",
-            type: 'pdf',
-            selected: true
-          };
-
-          if (user) {
-            const saved = await firestoreService.addSource(user.id, newSource);
-            if (saved) generateSourceSummary(saved as Source);
-          } else {
-            const localSource = { ...newSource, id: Date.now().toString() } as Source;
-            setSources(prev => [...prev, localSource]);
-            generateSourceSummary(localSource);
-          }
+          await addSourceToState(title, fullText.trim() || "No text could be extracted from this PDF.", 'pdf');
           setIsAddingSource(false);
         } catch (err) {
           console.error("PDF read error:", err);
@@ -188,23 +341,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     reader.onload = (event) => {
       const content = event.target?.result as string;
       const title = file.name.replace(/\.[^/.]+$/, "");
-      
-      const newSource: Partial<Source> = {
-        title,
-        content: content,
-        type: 'text',
-        selected: true
-      };
-      
-      if (user) {
-        firestoreService.addSource(user.id, newSource).then(saved => {
-          if (saved) generateSourceSummary(saved as Source);
-        });
-      } else {
-        const localSource = { ...newSource, id: Date.now().toString() } as Source;
-        setSources(prev => [...prev, localSource]);
-        generateSourceSummary(localSource);
-      }
+      addSourceToState(title, content, 'text');
       setIsAddingSource(false);
     };
     
@@ -258,7 +395,11 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   };
 
   const handleSendMessage = async () => {
-    if (!input.trim() || isLoading) return;
+    const now = Date.now();
+    if (!input.trim() || isLoading || isSendingRef.current || (now - lastSendTimeRef.current < 1000)) return;
+    
+    isSendingRef.current = true;
+    lastSendTimeRef.current = now;
 
     const userMsg = input.trim();
     setInput('');
@@ -308,6 +449,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       setMessages(prev => [...prev, { role: 'assistant', content: "An error occurred while linking to the neural source. Please try again." }]);
     } finally {
       setIsLoading(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -827,7 +969,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                     <Paperclip size={16} className="text-blue-500" />
                     <span>Upload File</span>
                   </button>
-                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.js,.ts,.tsx,.json,.css,.html" onChange={handleFileUpload} />
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.js,.ts,.tsx,.json,.css,.html,.pdf,.zip,.docx,.rar" onChange={handleFileUpload} />
                 </div>
                 <div className="flex items-center gap-3">
                   <button 

@@ -3,12 +3,10 @@ import { GoogleGenAI, Modality, ThinkingLevel } from '@google/genai';
 let googleAiClient: GoogleGenAI | null = null;
 function getAiClient() {
   if (!googleAiClient) {
-    const apiKey = typeof process !== 'undefined' && process.env?.GEMINI_API_KEY 
-                ? process.env.GEMINI_API_KEY 
-                : (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
                 
-    if (!apiKey || apiKey === 'MISSING_KEY') {
-      console.warn("GEMINI_API_KEY is not defined. AI features will fail.");
+    if (!apiKey) {
+      console.warn("GEMINI_API_KEY is not defined. AI features will fail. Ensure it is configured in the AI Studio Settings.");
     }
     googleAiClient = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
   }
@@ -19,24 +17,12 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   const ai = getAiClient();
   let lastError: any = null;
   
-  // Apply ThinkingLevel speed optimization if not specified
-  if (config.model.includes('gemini-3')) {
-    if (!config.config) config.config = {};
-    if (!config.config.thinkingConfig) {
-      config.config.thinkingConfig = { 
-        thinkingLevel: config.model.includes('flash') ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW 
-      };
-    }
-  }
+  // Clean config for speed
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       if (i === maxRetries - 1) {
-        if (config.model === 'gemini-3.1-pro-preview' || config.model === 'gemini-3.1-pro') {
-          config.model = 'gemini-3-flash-preview';
-        } else if (config.model === 'gemini-3-flash-preview' || config.model === 'gemini-1.5-flash') {
-          config.model = 'gemini-1.5-flash-8b';
-        }
+        config.model = 'gemini-3-flash-preview';
       }
 
       return await ai.models.generateContentStream(config);
@@ -48,7 +34,7 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
       const isRetryable = isUnavailable || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
       
       if (isRetryable && i < maxRetries - 1) {
-        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+        const delay = 500 + Math.random() * 500; // Reduced delay for faster feedback
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -62,27 +48,13 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
   let lastError: any = null;
   
-  // Apply ThinkingLevel speed optimization if not specified
-  if (config.model.includes('gemini-3')) {
-    if (!config.config) config.config = {};
-    if (!config.config.thinkingConfig) {
-      config.config.thinkingConfig = { 
-        thinkingLevel: config.model.includes('flash') ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW 
-      };
-    }
-  }
+  // Clean config for speed
 
   for (let i = 0; i < maxRetries; i++) {
     try {
       // If we are on the last retry and it's a 429, try falling back to a more available model
       if (i === maxRetries - 1) {
-        if (config.model === 'gemini-3.1-pro-preview' || config.model === 'gemini-3.1-pro') {
-          console.warn("Falling back to flash model due to multiple failures/quota issues.");
-          config.model = 'gemini-3-flash-preview';
-        } else if (config.model === 'gemini-3-flash-preview' || config.model === 'gemini-1.5-flash') {
-          console.warn("Falling back to flash-8b model due to multiple failures/quota issues.");
-          config.model = 'gemini-1.5-flash-8b';
-        }
+        config.model = 'gemini-3-flash-preview';
       }
 
       return await ai.models.generateContent(config);
@@ -96,8 +68,8 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
       const isRetryable = isUnavailable || isDeadline || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
       
       if (isRetryable && i < maxRetries - 1) {
-        const delay = Math.pow(2, i) * 1000 + Math.random() * 1000; // Exponential backoff with jitter
-        console.warn(`AI model busy or rate limited (Retry ${i + 1}/${maxRetries}). Retrying in ${Math.round(delay)}ms... Error: ${errorMsg.substring(0, 50)}...`);
+        const delay = 500 + Math.random() * 500; // Reduced delay
+        console.warn(`AI model busy. Retrying fast in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }

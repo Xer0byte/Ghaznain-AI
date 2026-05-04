@@ -10,6 +10,8 @@ import { firestoreService } from './services/firestoreService';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
+import { createExtractorFromData } from 'unrar-js';
 
 import VoiceAI from './components/VoiceAI';
 import CursorTrailCanvas from './components/CursorTrailCanvas';
@@ -88,8 +90,8 @@ const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
       }
     }
 
-    const nodeCount = window.innerWidth < 768 ? 20 : 40;
-    const nodes = Array.from({ length: nodeCount }, () => new Node());
+    const NodeCount = window.innerWidth < 768 ? 12 : 20;
+    const nodes = Array.from({ length: NodeCount }, () => new Node());
 
     const animate = () => {
       if (!ctx) return;
@@ -101,17 +103,18 @@ const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
         n.draw();
       });
 
+      // Optimized connection lines: lower threshold and alpha
+      ctx.lineWidth = 0.4;
       for (let i = 0; i < nodes.length; i++) {
         for (let j = i + 1; j < nodes.length; j++) {
           let dx = nodes[i].x - nodes[j].x;
           let dy = nodes[i].y - nodes[j].y;
-          let d = Math.hypot(dx, dy);
-          if (d < 160) {
+          let d = dx * dx + dy * dy; // Use distance squared for fast comparison
+          if (d < 14400) { // 120^2
             ctx.beginPath();
             ctx.moveTo(nodes[i].x, nodes[i].y);
             ctx.lineTo(nodes[j].x, nodes[j].y);
-            ctx.strokeStyle = theme === 'dark' ? 'rgba(180,180,180,0.12)' : 'rgba(0,0,0,0.12)';
-            ctx.lineWidth = 0.6;
+            ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
             ctx.stroke();
           }
         }
@@ -131,7 +134,8 @@ const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
     };
   }, [theme]);
 
-  return <canvas ref={canvasRef} className="fixed inset-0 -z-10" />;
+  // style will-change for performance
+  return <canvas ref={canvasRef} className="fixed inset-0 -z-10 opacity-70" style={{ pointerEvents: 'none', willChange: 'transform' }} />;
 };
 
 const MemoizedMarkdown = React.memo(({ content, theme }: { content: string, theme: string }) => (
@@ -966,6 +970,64 @@ const compressImageIfNeeded = async (base64Str: string, maxStringLength = 600000
   });
 };
 
+const ChatMessage = React.memo(({ msg, i, theme, sessionAssets, messagesLength, onCopy, onShare, onReadAloud, setAlertModal, setUser, setModals, user, setInputText }: any) => {
+  return (
+    <div className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[90%] md:max-w-[85%] p-4 md:p-6 rounded-2xl md:rounded-3xl text-[15px] md:text-[16px] leading-relaxed relative group ${
+        msg.role === 'user' 
+          ? (theme === 'dark' ? 'bg-[#333] text-white shadow-xl' : 'bg-black text-white shadow-lg')
+          : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
+      }`}>
+        {msg.role === 'user' && msg.text.startsWith('[SANDBOX]') && (
+           <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-2"><PenTool size={10}/> Sandbox instruction</div>
+        )}
+        {msg.imageUrl && (
+          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
+            <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain blur-0 transition-all duration-300" referrerPolicy="no-referrer" />
+          </div>
+        )}
+        {msg.videoUrl && (
+          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
+            <video controls src={msg.videoUrl} className="max-w-full h-auto object-contain" />
+          </div>
+        )}
+        {msg.audioUrl && (
+          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
+            <audio controls src={msg.audioUrl} className="w-full" />
+          </div>
+        )}
+        <div className={msg.role === 'user' ? 'text-white' : ''}>
+          {msg.role === 'user' ? msg.text.replace('[SANDBOX]', '').trim() : null}
+        </div>
+        {msg.role === 'ai' ? (
+          <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none`}>
+            {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
+              <div className="flex flex-col gap-2">
+                 <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
+                 <MemoizedMarkdown content={msg.text.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
+              </div>
+            ) : (
+              <MemoizedMarkdown content={msg.text.replace('[SANDBOX]', '').trim()} theme={theme} />
+            )}
+            
+            <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
+              <button onClick={() => onCopy(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
+                <Copy size={14} />
+              </button>
+              <button onClick={() => onShare(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Share">
+                <Share size={14} />
+              </button>
+              <button onClick={() => onReadAloud(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Read Aloud">
+                <Volume2 size={14} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+});
+
 export default function App() {
   console.log("App component starting...");
   const handleGoogleSuccess = async () => {
@@ -1093,6 +1155,8 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
+  const isSendingRef = useRef(false);
+  const lastSendTimeRef = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const [isMicMenuOpen, setIsMicMenuOpen] = useState(false);
   const [voiceMode, setVoiceMode] = useState<'dictation' | 'chat'>('dictation');
@@ -1557,9 +1621,6 @@ Output ONLY the raw terminal output (stdout/stderr). If there's an error, show O
 Speed and precision are your only priorities.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
       const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
@@ -1841,12 +1902,25 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   }, [user, currentConversationId]);
 
   const handleSend = async (text: string = inputText, isVoiceResponse: boolean = false) => {
-    if (!text.trim() && selectedFiles.length === 0) return;
+    const now = Date.now();
+    if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 1000)) return;
     
+    const messageText = text.trim();
+    if (!messageText && selectedFiles.length === 0) return;
+    
+    isSendingRef.current = true;
+    lastSendTimeRef.current = now;
+
     if (!user) {
       setModals(prev => ({ ...prev, signIn: true }));
+      isSendingRef.current = false;
       return;
     }
+
+    const currentFiles = [...selectedFiles];
+    setInputText('');
+    setSelectedFiles([]);
+    setIsThinking(true);
 
     if (view !== 'chat') {
       setView('chat');
@@ -1860,12 +1934,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
     }
     
-    let activeConvId = currentConversationId;
-    
     // Create new conversation if none exists
+    let activeConvId = currentConversationId;
     if (!activeConvId && user) {
       try {
-        const newConv = await firestoreService.createConversation(user.id, text ? text.substring(0, 30) + "..." : "File Upload", isPrivateChat);
+        const newConv = await firestoreService.createConversation(user.id, messageText ? messageText.substring(0, 30) + "..." : "File Upload", isPrivateChat);
         if (newConv) {
           activeConvId = newConv.id;
           setCurrentConversationId(newConv.id);
@@ -1874,11 +1947,6 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         console.error("Failed to create conversation", error);
       }
     }
-
-    const currentFiles = [...selectedFiles];
-    setInputText('');
-    setSelectedFiles([]);
-    setIsThinking(true);
 
     try {
       // Check limits (Firestore based)
@@ -1895,7 +1963,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       if (activeConvId) {
         await firestoreService.addMessage(user.id, activeConvId, { 
           role: 'user', 
-          text: text || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : ""),
+          text: messageText || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : ""),
           imageUrl: null 
         });
       }
@@ -1938,9 +2006,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
       if (Object.keys(sessionAssets).length > 0) {
         baseInstruction += `\n\nAVAILABLE ASSETS: You have access to images extracted from files or uploaded: [${Object.keys(sessionAssets).join(', ')}]. If writing code for the Sandbox, use window.Xer0Assets['filename'] to reference them.`;
       }
-
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured in AI Studio Secrets.");
 
       // Use recommended models from gemini-api skill
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
@@ -2119,14 +2184,23 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
       setMessages(prev => [...prev, { role: 'ai', text: `Oops! ${errorMessage}` }]);
     } finally {
       setIsThinking(false);
+      isSendingRef.current = false;
     }
   };
 
   const handleGenerateImage = async () => {
+    const now = Date.now();
+    if (isSendingRef.current || isGeneratingImage || (now - lastSendTimeRef.current < 1000)) return;
+    
     const prompt = inputText.trim();
     if (!prompt) return;
+    
+    isSendingRef.current = true;
+    lastSendTimeRef.current = now;
+
     if (!user) {
       setModals(prev => ({ ...prev, signIn: true }));
+      isSendingRef.current = false;
       return;
     }
     
@@ -2198,6 +2272,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
       setAlertModal({ isOpen: true, message: "Failed to generate image. Please try again later." });
     } finally {
       setIsGeneratingImage(false);
+      isSendingRef.current = false;
     }
   };
 
@@ -2449,9 +2524,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
           
           setIsThinking(true);
           try {
-            const apiKey = process.env.GEMINI_API_KEY;
-            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
             const response = await generateContentWithRetry({
               model: "gemini-3-flash-preview",
               contents: [
@@ -2521,9 +2593,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
           const base64Audio = (reader.result as string).split(',')[1];
           setIsThinkingIde(true);
           try {
-            const apiKey = process.env.GEMINI_API_KEY;
-            if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
             const response = await generateContentWithRetry({
               model: "gemini-3-flash-preview",
               contents: [
@@ -2653,9 +2722,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
         }
       });
 
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
       const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
@@ -2696,9 +2762,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
       });
 
       // First generate the script
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error("GEMINI_API_KEY is not configured.");
-
       const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
         contents: [
@@ -2776,6 +2839,75 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
             }
           };
           reader.readAsArrayBuffer(file);
+          return;
+        }
+
+        if (file.name.endsWith('.rar')) {
+          const reader = new FileReader();
+          reader.onload = async (event) => {
+            try {
+              const data = event.target?.result as ArrayBuffer;
+              const extractor = await createExtractorFromData(new Uint8Array(data));
+              const list = extractor.getFileList();
+              const arcFiles = Array.from(list.fileHeaders);
+              
+              for (const header of arcFiles as any[]) {
+                if (header.flags.directory) continue;
+                const extracted = extractor.extractFiles([header.name]);
+                const fileData = extracted.files[0];
+                if (!fileData) continue;
+
+                const entryName = header.name.toLowerCase();
+                const title = header.name;
+                const uint8 = fileData.extract[1];
+
+                const text = new TextDecoder().decode(uint8);
+                if (!text.substring(0, 1000).includes('\0')) {
+                  const encodedData = btoa(unescape(encodeURIComponent(text)));
+                  setIdeSelectedFiles(prev => [...prev, {
+                    data: encodedData,
+                    mimeType: 'text/plain',
+                    name: title
+                  }]);
+                }
+              }
+            } catch (err) {
+              console.error("RAR processing error in IDE", err);
+            }
+          };
+          reader.readAsArrayBuffer(file);
+          return;
+        }
+
+        if (file.name.endsWith('.zip')) {
+          const zipReader = new FileReader();
+          zipReader.onload = async (event) => {
+            try {
+              const zipData = event.target?.result as ArrayBuffer;
+              const zip = await JSZip.loadAsync(zipData);
+              
+              for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+                if (zipEntry.dir) continue;
+                
+                const entryName = zipEntry.name.toLowerCase();
+                const title = zipEntry.name;
+
+                // Greedy extraction for IDE
+                const content = await zipEntry.async("string");
+                if (!content.substring(0, 1000).includes('\0')) {
+                  const encodedData = btoa(unescape(encodeURIComponent(content)));
+                  setIdeSelectedFiles(prev => [...prev, {
+                    data: encodedData,
+                    mimeType: 'text/plain',
+                    name: title
+                  }]);
+                }
+              }
+            } catch (err) {
+              console.error("ZIP processing error in IDE", err);
+            }
+          };
+          zipReader.readAsArrayBuffer(file);
           return;
         }
 
@@ -2872,8 +3004,102 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
     if (files.length === 0) return;
     
     files.forEach(file => {
-      if (file.name.endsWith('.rar') || file.name.endsWith('.zip')) {
-        setAlertModal({ isOpen: true, message: "Note: AI models cannot directly read compressed RAR/ZIP files. Please extract the files and upload the documents (PDF, TXT, DOCX) directly for best results." });
+      // Handle RAR files
+      if (file.name.endsWith('.rar')) {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const data = event.target?.result as ArrayBuffer;
+            const extractor = await createExtractorFromData(new Uint8Array(data));
+            const list = extractor.getFileList();
+            const arcFiles = Array.from(list.fileHeaders);
+            
+            for (const header of arcFiles as any[]) {
+              if (header.flags.directory) continue;
+              const extracted = extractor.extractFiles([header.name]);
+              const fileData = extracted.files[0];
+              if (!fileData) continue;
+
+              const entryName = header.name.toLowerCase();
+              const title = header.name.split(/[/\\]/).pop() || header.name;
+              const uint8 = fileData.extract[1];
+
+              if (entryName.endsWith('.pdf')) {
+                const base64 = btoa(uint8.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                setSelectedFiles(prev => [...prev, { data: base64, mimeType: 'application/pdf', name: title }]);
+              } else if (entryName.endsWith('.docx')) {
+                try {
+                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.buffer });
+                  const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+                  setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                } catch (err) { console.error("RAR DOCX err", err); }
+              } else if (entryName.match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+                const base64 = btoa(uint8.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                const mimeType = entryName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+                setSelectedFiles(prev => [...prev, { data: base64, mimeType, name: title }]);
+              } else {
+                // Greedy text extraction
+                const text = new TextDecoder().decode(uint8);
+                if (!text.substring(0, 1000).includes('\0')) {
+                  const encodedData = btoa(unescape(encodeURIComponent(text)));
+                  setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                }
+              }
+            }
+          } catch (err) {
+            console.error("RAR processing error:", err);
+            setAlertModal({ isOpen: true, message: "Failed to process RAR file contents." });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+
+      // Handle ZIP files
+      if (file.name.endsWith('.zip')) {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          try {
+            const zipData = event.target?.result as ArrayBuffer;
+            const zip = await JSZip.loadAsync(zipData);
+            
+            for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+              if (zipEntry.dir) continue;
+              
+              const entryName = zipEntry.name.toLowerCase();
+              const title = zipEntry.name.split('/').pop() || zipEntry.name;
+
+              if (entryName.endsWith('.pdf')) {
+                const pdfData = await zipEntry.async("uint8array");
+                const base64 = btoa(pdfData.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                setSelectedFiles(prev => [...prev, { data: base64, mimeType: 'application/pdf', name: title }]);
+              } else if (entryName.endsWith('.docx')) {
+                const docxData = await zipEntry.async("uint8array");
+                try {
+                  const result = await mammoth.extractRawText({ arrayBuffer: docxData.buffer });
+                  const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+                  setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                } catch (err) { console.error(`Error reading DOCX ${title} from ZIP:`, err); }
+              } else if (entryName.match(/\.(jpg|jpeg|png|gif|webp)$/)) {
+                const imgData = await zipEntry.async("uint8array");
+                const base64 = btoa(imgData.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                const mimeType = entryName.endsWith('.png') ? 'image/png' : 'image/jpeg';
+                setSelectedFiles(prev => [...prev, { data: base64, mimeType, name: title }]);
+              } else {
+                // Greedy text extraction for ZIP
+                const content = await zipEntry.async("string");
+                if (!content.substring(0, 1000).includes('\0')) {
+                  const encodedData = btoa(unescape(encodeURIComponent(content)));
+                  setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                }
+              }
+            }
+          } catch (err) {
+            console.error("ZIP processing error:", err);
+            setAlertModal({ isOpen: true, message: "Failed to process ZIP file contents." });
+          }
+        };
+        reader.readAsArrayBuffer(file);
         return;
       }
 
@@ -3060,9 +3286,9 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
         <div className="mt-4 space-y-1">
           <div 
             onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} 
-            className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all font-medium mb-2 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
+            className={`flex items-center justify-center gap-3 px-4 py-2.5 rounded-full border transition-all text-sm font-bold mb-4 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
           >
-            <Plus size={20} />
+            <Plus size={18} />
             <span>New Chat</span>
           </div>
           {[
@@ -3409,7 +3635,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                   type="text" 
                   value={inputText}
                   onChange={handleInputChange}
-                  onKeyDown={e => e.key === 'Enter' && handleSend()}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
                   onPaste={handlePaste}
                   placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s)` : "How can I help?"}
                   className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
@@ -3481,13 +3707,13 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
               {showScrollBottom && (
                 <button 
                   onClick={scrollToBottom}
-                  className={`fixed bottom-24 right-6 p-3 rounded-full shadow-2xl z-40 transition-all hover:scale-110 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'bg-[#111] border-[#333] text-[#00ff9d]' : 'bg-white border-[#ddd] text-black'}`}
+                  className={`fixed bottom-24 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                 >
                   <div className="relative">
-                    <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-inherit animate-pulse"></div>
-                    <ChevronDown size={20} className="group-hover:translate-y-0.5 transition-transform" />
+                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-inherit animate-pulse"></div>
+                    <ChevronDown size={18} className="group-hover:translate-y-0.5 transition-transform" />
                   </div>
-                  <span className="text-xs font-bold pr-1">New Messages</span>
+                  <span className="text-xs font-bold font-mono">New Messages</span>
                 </button>
               )}
               {messages.length === 0 ? (
@@ -3836,7 +4062,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                     type="text" 
                     value={inputText}
                     onChange={handleInputChange}
-                    onKeyDown={e => e.key === 'Enter' && handleSend()}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
                     onPaste={handlePaste}
                     placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "What's on your mind?"}
                     className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
@@ -4120,7 +4346,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                 type="text" 
                 value={inputText}
                 onChange={e => setInputText(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleGenerateImage()}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleGenerateImage(); } }}
                 placeholder="A futuristic city with flying cars..."
                 className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
               />
@@ -4435,10 +4661,10 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                         setShowIdeChat(true);
                         setShowIdeHistory(false);
                       }}
-                      className={`px-3 flex items-center justify-center rounded-lg text-[#00ff9d] hover:bg-[#00ff9d]/10 transition-all`}
+                      className={`px-3 py-1 flex items-center justify-center rounded-full border transition-all text-xs font-bold ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                       title="New Chat"
                     >
-                      <Plus size={16} />
+                      <Plus size={14} className="mr-1" /> New
                     </button>
                   </div>
 
@@ -4456,7 +4682,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                         {showIdeScrollBottom && (
                           <button 
                             onClick={scrollToIdeBottom}
-                            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in ${theme === 'dark' ? 'bg-[#111] border-[#333] text-[#00ff9d]' : 'bg-white border-[#ddd] text-black'}`}
+                            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in hover:scale-105 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                           >
                             <ChevronDown size={14} className="animate-bounce" />
                             <span className="text-[10px] font-bold">New message</span>
@@ -4489,9 +4715,9 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                           <div className="flex items-center gap-4">
                             <button 
                               onClick={() => { setIdeMessages([]); setCurrentIdeConversationId(null); setShowIdeChat(true); }} 
-                              className="text-[#00ff9d] border border-[#00ff9d]/30 px-2 py-1 rounded hover:bg-[#00ff9d]/10 flex items-center gap-1.5"
+                              className={`px-2 py-1 rounded-full border transition-all flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                             >
-                              <Plus size={12} /> <span className="text-[10px] font-bold uppercase tracking-wider">New Chat</span>
+                              <Plus size={12} /> <span>New Chat</span>
                             </button>
                             <button onClick={() => setShowIdeHistory(false)} className="md:hidden"><X size={14}/></button>
                           </div>

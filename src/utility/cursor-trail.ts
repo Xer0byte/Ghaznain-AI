@@ -17,7 +17,7 @@ export const cursorTrail = ({
 
   const mouse = { x: width / 2, y: height / 2 };
   const dots: { x: number; y: number; vx: number; vy: number }[] = [];
-  const dotCount = 35; // Increased for smoother trail
+  const dotCount = width < 768 ? 15 : 22; // Reduced for performance
 
   for (let i = 0; i < dotCount; i++) {
     dots.push({
@@ -133,16 +133,11 @@ export const cursorTrail = ({
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    // Main Core Line 
-    ctx.globalAlpha = 1;
+    // Foreground Core Line 
+    ctx.globalAlpha = 0.8;
     ctx.beginPath();
-    ctx.lineWidth = width < 768 ? 1.5 : 2.5;
-    
-    const gradient = ctx.createLinearGradient(dots[0].x, dots[0].y, dots[dots.length-1].x, dots[dots.length-1].y);
-    gradient.addColorStop(0, displayColor);
-    gradient.addColorStop(0.5, displayColor);
-    gradient.addColorStop(1, "transparent");
-    ctx.strokeStyle = gradient;
+    ctx.lineWidth = width < 768 ? 1.2 : 2.0;
+    ctx.strokeStyle = displayColor;
 
     ctx.moveTo(dots[0].x, dots[0].y);
     for (let i = 1; i < dots.length - 1; i++) {
