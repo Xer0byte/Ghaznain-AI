@@ -13,11 +13,35 @@ function getAiClient() {
   return googleAiClient;
 }
 
+function logContextSize(config: any) {
+  try {
+    let estimate = 0;
+    if (config.contents) {
+      const contents = Array.isArray(config.contents) ? config.contents : [config.contents];
+      contents.forEach((c: any) => {
+        if (c.parts) {
+          c.parts.forEach((p: any) => {
+            if (p.text) estimate += p.text.length;
+            if (p.inlineData?.data) estimate += (p.inlineData.data.length * 0.75);
+          });
+        }
+      });
+    }
+    // High frequency logging can slow down the browser if the object is huge
+    if (estimate > 500) {
+      console.log(`AI context size estimate: ~${Math.round(estimate / 1024)} KB`);
+    }
+    return estimate;
+  } catch (e) {
+    return 0;
+  }
+}
+
 export async function generateContentStreamWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
   let lastError: any = null;
   
-  // Clean config for speed
+  logContextSize(config);
 
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -29,6 +53,12 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
     } catch (error: any) {
       lastError = error;
       const errorMsg = error.message?.toUpperCase() || "";
+      
+      if (errorMsg.includes('TOKEN_COUNT_EXCEEDS_MAXIMUM') || errorMsg.includes('MAX_TOKENS') || errorMsg.includes('400')) {
+        console.error("AI Context overflow detected:", error);
+        logContextSize(config);
+      }
+
       const isQuotaExceeded = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('QUOTA');
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
       const isRetryable = isUnavailable || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
@@ -48,7 +78,7 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   const ai = getAiClient();
   let lastError: any = null;
   
-  // Clean config for speed
+  logContextSize(config);
 
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -61,6 +91,12 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
     } catch (error: any) {
       lastError = error;
       const errorMsg = error.message?.toUpperCase() || "";
+
+      if (errorMsg.includes('TOKEN_COUNT_EXCEEDS_MAXIMUM') || errorMsg.includes('MAX_TOKENS') || errorMsg.includes('400')) {
+        console.error("AI Context overflow detected:", error);
+        logContextSize(config);
+      }
+      
       const isQuotaExceeded = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('QUOTA');
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
       const isDeadline = errorMsg.includes('DEADLINE_EXCEEDED');

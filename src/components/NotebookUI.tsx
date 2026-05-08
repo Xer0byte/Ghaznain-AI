@@ -5,8 +5,8 @@ import { generateContentStreamWithRetry, generateContentWithRetry } from '../lib
 import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
-import { createExtractorFromData } from 'unrar-js';
 import { firestoreService } from '../services/firestoreService';
+import { copyToClipboard, getUnrarExtractor, truncateText } from '../lib/utils';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -32,6 +32,41 @@ interface Message {
   content: string;
 }
 
+const NotebookChatMessage = React.memo(({ msg, isDark, user, onSaveToNote }: { msg: Message, isDark: boolean, user: any, onSaveToNote: (content: string) => void }) => (
+  <div className={`flex gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+    {msg.role === 'assistant' && (
+      <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+        <Sparkles size={16} className="text-white" />
+      </div>
+    )}
+    <div className={`max-w-[85%] rounded-2xl p-4 ${
+      msg.role === 'user' 
+      ? 'bg-blue-600 text-white shadow-lg' 
+      : (isDark ? 'bg-[#1a1a1a] border border-[#222]' : 'bg-white border border-[#eee] shadow-sm')
+    }`}>
+      <div className="prose prose-sm dark:prose-invert max-w-none">
+        <Markdown>{msg.content}</Markdown>
+      </div>
+      {msg.role === 'assistant' && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/5 flex gap-2">
+          <button 
+            onClick={() => onSaveToNote(msg.content)}
+            className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
+          >
+            <Save size={10} /> Save to Notes
+          </button>
+          <button 
+            onClick={() => copyToClipboard(msg.content)}
+            className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
+          >
+            <Copy size={10} /> Copy
+          </button>
+        </div>
+      )}
+    </div>
+  </div>
+));
+
 export default function NotebookUI({ theme, user }: { theme?: string, user?: any }) {
   const [sources, setSources] = useState<Source[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
@@ -52,6 +87,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   const isSendingRef = useRef(false);
   const lastSendTimeRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const isDark = theme === 'dark';
 
   // Responsive logic
@@ -161,10 +197,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
 
   const processFile = async (file: File) => {
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      alert("File is too large. Please upload files under 10MB.");
-      return;
-    }
+    const fileNameFull = (file as any).webkitRelativePath || file.name;
 
     const fileName = file.name.toLowerCase();
 
@@ -174,7 +207,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       reader.onload = async (event) => {
         try {
           const data = event.target?.result as ArrayBuffer;
-          const extractor = await createExtractorFromData(new Uint8Array(data));
+          const extractor = await getUnrarExtractor(data);
           const list = extractor.getFileList();
           const arcFiles = Array.from(list.fileHeaders);
           
@@ -182,13 +215,13 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
           for (const header of arcFiles as any[]) {
             if (header.flags.directory) continue;
             
-            const extracted = extractor.extractFiles([header.name]);
-            const fileData = extracted.files[0];
+            const extracted = extractor.extract({ files: [header.name] });
+            const fileData = Array.from(extracted.files)[0];
             if (!fileData) continue;
 
             const entryName = header.name.toLowerCase();
             const title = header.name.split(/[/\\]/).pop() || header.name;
-            const uint8 = fileData.extract[1]; // The actual data
+            const uint8 = fileData.extraction; // The actual data in node-unrar-js v2
 
             if (entryName.endsWith('.pdf')) {
                try {
@@ -206,7 +239,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                } catch (e) { console.error("RAR PDF extraction error", e); }
             } else if (entryName.endsWith('.docx')) {
                try {
-                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.buffer });
+                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.slice().buffer });
                   await addSourceToState(title, result.value, 'text');
                   count++;
                } catch (e) { console.error("RAR DOCX extraction error", e); }
@@ -298,7 +331,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
         try {
           const arrayBuffer = event.target?.result as ArrayBuffer;
           const result = await mammoth.extractRawText({ arrayBuffer });
-          const title = file.name.replace(/\.[^/.]+$/, "");
+          const title = fileNameFull.replace(/\.[^/.]+$/, "");
           await addSourceToState(title, result.value, 'text');
           setIsAddingSource(false);
         } catch (err) {
@@ -325,7 +358,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
             fullText += pageText + '\n';
           }
           
-          const title = file.name.replace(/\.[^/.]+$/, "");
+          const title = fileNameFull.replace(/\.[^/.]+$/, "");
           await addSourceToState(title, fullText.trim() || "No text could be extracted from this PDF.", 'pdf');
           setIsAddingSource(false);
         } catch (err) {
@@ -340,7 +373,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     const reader = new FileReader();
     reader.onload = (event) => {
       const content = event.target?.result as string;
-      const title = file.name.replace(/\.[^/.]+$/, "");
+      const title = fileNameFull.replace(/\.[^/.]+$/, "");
       addSourceToState(title, content, 'text');
       setIsAddingSource(false);
     };
@@ -349,8 +382,10 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      files.forEach(file => processFile(file));
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -413,9 +448,9 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     setIsLoading(true);
 
     try {
-      const selectedSources = sources.filter(s => s.selected);
+      const selectedSources = sources.filter(s => s.selected).slice(0, 10);
       const context = selectedSources.length > 0 
-        ? `CONTEXT FROM SOURCES:\n${selectedSources.map(s => `--- SOURCE: ${s.title} ---\n${s.content}`).join('\n\n')}`
+        ? `CONTEXT FROM SOURCES:\n${selectedSources.map(s => `--- SOURCE: ${s.title} ---\n${truncateText(s.content, 15000)}`).join('\n\n')}`
         : "No specific sources selected. Answer based on general knowledge.";
 
       const stream = await generateContentStreamWithRetry({
@@ -670,42 +705,17 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                       </div>
                     ) : (
                       messages.map((msg, idx) => (
-                        <div key={idx} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                          {msg.role === 'assistant' && (
-                            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-                              <Sparkles size={16} className="text-white" />
-                            </div>
-                          )}
-                          <div className={`max-w-[85%] rounded-2xl p-4 ${
-                            msg.role === 'user' 
-                            ? 'bg-blue-600 text-white shadow-lg' 
-                            : (isDark ? 'bg-[#1a1a1a] border border-[#222]' : 'bg-white border border-[#eee] shadow-sm')
-                          }`}>
-                            <div className="prose prose-sm dark:prose-invert max-w-none">
-                              <Markdown>{msg.content}</Markdown>
-                            </div>
-                            {msg.role === 'assistant' && (
-                              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-white/5 flex gap-2">
-                                <button 
-                                  onClick={() => {
-                                   const newNote = { title: 'Chat Insight', content: msg.content };
-                                   if (user) { firestoreService.addNote(user.id, newNote); }
-                                   else { setNotes([{ id: Date.now().toString(), ...newNote }, ...notes]); }
-                                 }}
-                                  className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
-                                >
-                                  <Save size={10} /> Save to Notes
-                                </button>
-                                <button 
-                                  onClick={() => navigator.clipboard.writeText(msg.content)}
-                                  className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity"
-                                >
-                                  <Copy size={10} /> Copy
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <NotebookChatMessage 
+                          key={idx} 
+                          msg={msg} 
+                          isDark={isDark} 
+                          user={user} 
+                          onSaveToNote={(content) => {
+                            const newNote = { title: 'Chat Insight', content };
+                            if (user) { firestoreService.addNote(user.id, newNote); }
+                            else { setNotes(prev => [{ id: Date.now().toString(), ...newNote }, ...prev]); }
+                          }}
+                        />
                       ))
                     )}
                     {isLoading && (
@@ -969,7 +979,15 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                     <Paperclip size={16} className="text-blue-500" />
                     <span>Upload File</span>
                   </button>
-                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.js,.ts,.tsx,.json,.css,.html,.pdf,.zip,.docx,.rar" onChange={handleFileUpload} />
+                  <button 
+                    onClick={() => folderInputRef.current?.click()}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all ${isDark ? 'bg-white/5 border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5' : 'bg-gray-50 border-gray-200 hover:border-blue-500/50 hover:bg-blue-50'}`}
+                  >
+                    <Book size={16} className="text-blue-500" />
+                    <span>Upload Folder</span>
+                  </button>
+                  <input ref={fileInputRef} type="file" className="hidden" accept=".txt,.md,.js,.ts,.tsx,.json,.css,.html,.pdf,.zip,.docx,.rar" onChange={handleFileUpload} multiple />
+                  <input ref={folderInputRef} type="file" className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} onChange={handleFileUpload} />
                 </div>
                 <div className="flex items-center gap-3">
                   <button 

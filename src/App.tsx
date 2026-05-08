@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,15 +7,16 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
+import { copyToClipboard, getUnrarExtractor, truncateText } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
-import { createExtractorFromData } from 'unrar-js';
 
 import VoiceAI from './components/VoiceAI';
 import CursorTrailCanvas from './components/CursorTrailCanvas';
 import NotebookUI from './components/NotebookUI';
+import { ChatMessage } from './components/ChatMessage';
 
 const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -138,43 +139,7 @@ const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
   return <canvas ref={canvasRef} className="fixed inset-0 -z-10 opacity-70" style={{ pointerEvents: 'none', willChange: 'transform' }} />;
 };
 
-const MemoizedMarkdown = React.memo(({ content, theme }: { content: string, theme: string }) => (
-  <Markdown 
-    remarkPlugins={[remarkGfm]}
-    components={{
-      code({node, inline, className, children, ...props}: any) {
-        const match = /language-(\w+)/.exec(className || '')
-        return !inline && match ? (
-          <div className="relative group/code my-4 rounded-xl overflow-hidden border border-[#333]">
-            <div className="flex items-center justify-between px-4 py-2 bg-[#1e1e1e] text-xs text-[#888] border-b border-[#333]">
-              <span>{match[1]}</span>
-              <button 
-                onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, ''))}
-                className="hover:text-white transition-colors flex items-center gap-1"
-              >
-                <Copy size={12} /> Copy code
-              </button>
-            </div>
-            <SyntaxHighlighter
-              {...props}
-              children={String(children).replace(/\n$/, '')}
-              style={vscDarkPlus}
-              language={match[1]}
-              PreTag="div"
-              customStyle={{ margin: 0, padding: '1rem', background: '#111' }}
-            />
-          </div>
-        ) : (
-          <code {...props} className={`${className} bg-black/10 dark:bg-white/10 px-1.5 py-0.5 rounded-md text-sm font-mono`}>
-            {children}
-          </code>
-        )
-      }
-    }}
-  >
-    {content}
-  </Markdown>
-));
+
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -482,7 +447,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                            <span>{u.password}</span>
                            <button 
                              onClick={() => {
-                               navigator.clipboard.writeText(u.password);
+                               copyToClipboard(u.password);
                                setAlertModal({ isOpen: true, message: "Password copied to clipboard!" });
                              }}
                              className="p-1 hover:bg-blue-500/10 rounded transition-colors"
@@ -970,63 +935,7 @@ const compressImageIfNeeded = async (base64Str: string, maxStringLength = 600000
   });
 };
 
-const ChatMessage = React.memo(({ msg, i, theme, sessionAssets, messagesLength, onCopy, onShare, onReadAloud, setAlertModal, setUser, setModals, user, setInputText }: any) => {
-  return (
-    <div className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[90%] md:max-w-[85%] p-4 md:p-6 rounded-2xl md:rounded-3xl text-[15px] md:text-[16px] leading-relaxed relative group ${
-        msg.role === 'user' 
-          ? (theme === 'dark' ? 'bg-[#333] text-white shadow-xl' : 'bg-black text-white shadow-lg')
-          : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
-      }`}>
-        {msg.role === 'user' && msg.text.startsWith('[SANDBOX]') && (
-           <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-2"><PenTool size={10}/> Sandbox instruction</div>
-        )}
-        {msg.imageUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain blur-0 transition-all duration-300" referrerPolicy="no-referrer" />
-          </div>
-        )}
-        {msg.videoUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <video controls src={msg.videoUrl} className="max-w-full h-auto object-contain" />
-          </div>
-        )}
-        {msg.audioUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <audio controls src={msg.audioUrl} className="w-full" />
-          </div>
-        )}
-        <div className={msg.role === 'user' ? 'text-white' : ''}>
-          {msg.role === 'user' ? msg.text.replace('[SANDBOX]', '').trim() : null}
-        </div>
-        {msg.role === 'ai' ? (
-          <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none`}>
-            {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
-              <div className="flex flex-col gap-2">
-                 <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
-                 <MemoizedMarkdown content={msg.text.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
-              </div>
-            ) : (
-              <MemoizedMarkdown content={msg.text.replace('[SANDBOX]', '').trim()} theme={theme} />
-            )}
-            
-            <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
-              <button onClick={() => onCopy(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
-                <Copy size={14} />
-              </button>
-              <button onClick={() => onShare(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Share">
-                <Share size={14} />
-              </button>
-              <button onClick={() => onReadAloud(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Read Aloud">
-                <Volume2 size={14} />
-              </button>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-});
+
 
 export default function App() {
   console.log("App component starting...");
@@ -1132,6 +1041,7 @@ export default function App() {
   const [isListeningIde, setIsListeningIde] = useState(false);
   const [showIdeHistory, setShowIdeHistory] = useState(false);
   const ideFileInputRef = useRef<HTMLInputElement>(null);
+  const ideFolderInputRef = useRef<HTMLInputElement>(null);
 
   const [canvasHistory, setCanvasHistory] = useState<{prompt: string, code: string, timestamp: number}[]>(() => {
     const saved = localStorage.getItem('xer0byteCanvasHistory');
@@ -1153,6 +1063,7 @@ export default function App() {
   });
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
@@ -1463,41 +1374,41 @@ export default function App() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const ideMessagesContainerRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const scrollToBottom = useCallback((smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  }, []);
 
-  const scrollToIdeBottom = () => {
-    ideMessagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const scrollToIdeBottom = useCallback((smooth = true) => {
+    ideMessagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+  }, []);
 
-  const handleManualScroll = () => {
+  const handleManualScroll = useCallback(() => {
     if (messagesContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
       setShowScrollBottom(!isAtBottom);
     }
-  };
+  }, []);
 
-  const handleIdeManualScroll = () => {
+  const handleIdeManualScroll = useCallback(() => {
     if (ideMessagesContainerRef.current) {
       const { scrollTop, scrollHeight, clientHeight } = ideMessagesContainerRef.current;
       const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
       setShowIdeScrollBottom(!isAtBottom);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (settings.autoScroll && !showScrollBottom) {
-      scrollToBottom();
+      scrollToBottom(false);
     }
-  }, [messages, isThinking, settings.autoScroll, showScrollBottom]);
+  }, [messages.length, messages[messages.length - 1]?.text.length, isThinking, settings.autoScroll, showScrollBottom, scrollToBottom]);
 
   useEffect(() => {
     if (settings.autoScroll && !showIdeScrollBottom && view === 'ide') {
-      scrollToIdeBottom();
+      scrollToIdeBottom(false);
     }
-  }, [messages, isThinkingIde, settings.autoScroll, showIdeScrollBottom, view]);
+  }, [ideMessages.length, ideMessages[ideMessages.length - 1]?.text.length, isThinkingIde, settings.autoScroll, showIdeScrollBottom, view, scrollToIdeBottom]);
 
 
   const apiFetch = async (url: string, options: any = {}) => {
@@ -1700,7 +1611,7 @@ Return "Code executed successfully with no output." if the program produces abso
       });
     }
 
-    const inputParts: any[] = [{ text: originalPrompt }];
+    const inputParts: any[] = [{ text: truncateText(originalPrompt, 15000) }];
     for (const file of ideSelectedFiles) {
       inputParts.push({
         inlineData: {
@@ -1711,6 +1622,9 @@ Return "Code executed successfully with no output." if the program produces abso
     }
 
     setIdeSelectedFiles([]);
+    
+    // Safety: bound the size of currentCode very strictly
+    const boundedCode = truncateText(currentCode, 50000); 
     
     try {
       await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
@@ -1723,7 +1637,7 @@ Prioritize speed and immediate technical results.
 
 CURRENT CODE IN EDITOR:
 \`\`\`${canvasLanguage}
-${currentCode}
+${boundedCode}
 \`\`\`
 
 YOUR TASK:
@@ -1741,8 +1655,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const aiMsgId = (Date.now() + 1).toString();
       
       try {
-        const cleanedHistory = ideMessages.slice(-8).map(m => {
-          let text = m.text;
+        const cleanedHistory = ideMessages.slice(-3).map(m => {
+          let text = truncateText(m.text, 5000); // Very aggressive truncation
           if (m.role === 'ai' && text.includes('```') && text.length > 2000) {
             text = text.replace(/```[\s\S]*?```/g, '(Code updated in editor)').substring(0, 1000);
           }
@@ -1770,7 +1684,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               model: 'gemini-3-flash-preview',
               contents: [
                 { role: "user", parts: [{ text: systemInstruction }] },
-                ...ideMessages.slice(-8).map(m => ({ role: m.role === 'ai' ? 'model' : 'user', parts: [{ text: m.text }] })),
+                ...cleanedHistory,
                 { role: "user", parts: inputParts }
               ]
             });
@@ -1953,33 +1867,26 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       if (user.role !== 'admin' && user.plan === 'free' && (user.messageCount || 0) >= 16) {
         setModals(prev => ({ ...prev, upgradePro: true }));
         setIsThinking(false);
+        isSendingRef.current = false;
         return;
       }
       
-      // Increment message count
-      await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
+      // Select best model for speed/quality
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
-      // Save user message
-      if (activeConvId) {
-        await firestoreService.addMessage(user.id, activeConvId, { 
-          role: 'user', 
-          text: messageText || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : ""),
-          imageUrl: null 
-        });
-      }
-
-      const chatHistory = messages.map((msg: any) => ({
+      // Optimized history: only capture relevant context
+      const chatHistory = messages.slice(-5).map((msg: any) => ({
         role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.text }]
+        parts: [{ text: truncateText(msg.text, 2000) }]
       }));
 
       const inputParts: any[] = [];
-      if (text) inputParts.push({ text });
+      if (text) inputParts.push({ text: truncateText(text, 10000) });
       if (currentFiles.length > 0) {
         currentFiles.forEach(file => {
           inputParts.push({
             inlineData: {
-              data: file.data.split(',')[1] || file.data, // Ensure clean base64
+              data: file.data.includes(',') ? file.data.split(',')[1] : file.data,
               mimeType: file.mimeType
             }
           });
@@ -1987,82 +1894,54 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
 
       // Add a temporary AI message for streaming
-      setMessages(prev => [...prev, { role: 'ai', text: "" }]);
+      const aiMsgId = Date.now().toString() + "-ai-chat";
+      setMessages(prev => [...prev, { role: 'ai', text: "...", id: aiMsgId }]);
       
-      const systemInstruction = `You are Xer0byte AI, an elite assistant optimized for peak performance.
-Velocity: Respond instantly. Never use introductory phrases like "Certainly" or "I can help."
-Directness: Provide the exact answer or code requested immediately. 
-Efficiency: Use the minimum amount of text required to solve the user's problem.`;
+      const systemInstruction = `You are Xer0byte AI. Respond with extreme speed.
+- Direct answers only.
+- No intro/outro.
+- Max code quality, min fluff.
+- Be concise.`;
       
-      let baseInstruction = systemInstruction;
-      if (persona === 'fun') {
-        baseInstruction += "\n\nPERSONA: Be witty and humorous, but stay extremely fast and direct.";
-      } else if (persona === 'concise') {
-        baseInstruction += "\n\nPERSONA: Minimize text to the absolute core. One sentence or code block only.";
-      } else {
-        baseInstruction += "\n\nPERSONA: Be highly efficient, helpful, and skip all pleasantries to maximize speed.";
-      }
-
-      if (Object.keys(sessionAssets).length > 0) {
-        baseInstruction += `\n\nAVAILABLE ASSETS: You have access to images extracted from files or uploaded: [${Object.keys(sessionAssets).join(', ')}]. If writing code for the Sandbox, use window.Xer0Assets['filename'] to reference them.`;
-      }
-
-      // Use recommended models from gemini-api skill
-      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
+      const streamResult = await generateContentStreamWithRetry({
+        model: geminiModel,
+        contents: [
+          { role: 'user', parts: [{ text: systemInstruction }] },
+          ...chatHistory,
+          { role: 'user', parts: inputParts }
+        ]
+      });
 
       let fullAiText = "";
-      const aiMsgId = Date.now().toString() + "-ai-chat";
+      let lastUpdateTime = Date.now();
       
-      try {
-        // Update the temporary AI message with a streaming placeholder
-        setMessages(prev => prev.map((m, i) => i === prev.length - 1 ? { ...m, text: "...", id: aiMsgId } : m));
-
-        let stream;
-        try {
-          stream = await generateContentStreamWithRetry({
-            model: geminiModel,
-            contents: [
-              { role: 'user', parts: [{ text: baseInstruction }] },
-              ...chatHistory.slice(-15),
-              { role: 'user', parts: inputParts }
-            ]
-          });
-        } catch (err: any) {
-          const errorMsg = err.message?.toUpperCase() || "";
-          if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
-            stream = await generateContentStreamWithRetry({
-              model: 'gemini-3-flash-preview',
-              contents: [
-                { role: 'user', parts: [{ text: baseInstruction }] },
-                ...chatHistory.slice(-15),
-                { role: 'user', parts: inputParts }
-              ]
-            });
-          } else {
-            throw err;
-          }
-        }
-
-        if (!stream) throw new Error("Neural Pulse Failed: Check Local Config");
-
-        let isFirstChunk = true;
-        for await (const chunk of stream) {
-          const chunkText = chunk.text || "";
-          if (isFirstChunk && chunkText) {
-            setIsThinking(false);
-            isFirstChunk = false;
-          }
+      // The streamResult is already an async generator based on the linter error
+      for await (const chunk of (streamResult as any)) {
+        const chunkText = chunk.text ? (typeof chunk.text === 'function' ? chunk.text() : chunk.text) : "";
+        if (chunkText) {
           fullAiText += chunkText;
-          setMessages(prev => prev.map(msg => 
-            msg.id === aiMsgId ? { ...msg, text: fullAiText } : msg
-          ));
+          
+          // Throttle state updates to 60fps equivalent or slower for better scrolling perf
+          const now = Date.now();
+          if (now - lastUpdateTime > 80 || fullAiText.length < 50) {
+             setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullAiText } : m));
+             lastUpdateTime = now;
+          }
         }
-
-      } catch (err: any) {
-        console.error("Chat AI failed", err);
-        setMessages(prev => prev.filter(m => m.id !== aiMsgId));
-        throw err;
       }
+      // Final update
+      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullAiText } : m));
+
+      // Background tasks
+      Promise.resolve().then(async () => {
+        if (activeConvId && user) {
+          await firestoreService.addMessage(user.id, activeConvId, { role: 'ai', text: fullAiText, imageUrl: null });
+          await firestoreService.updateUserProfile(user.id, { 
+            messageCount: (user.messageCount || 0) + 1,
+            lastActive: Date.now()
+          });
+        }
+      });
 
       // Check if the AI decided to generate an image, music, or video
       const imageMatch = fullAiText.match(/\[GENERATE_IMAGE:\s*(.*?)\]/i);
@@ -2308,11 +2187,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
   const handleProfilePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
-
-    if (file.size > 10 * 1024 * 1024) {
-      setAlertModal({ isOpen: true, message: 'Image must be less than 10MB' });
-      return;
-    }
 
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -2629,11 +2503,6 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
   const handleLmFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       Array.from(e.target.files).forEach(file => {
-        if (file.size > 20 * 1024 * 1024) {
-          setAlertModal({ isOpen: true, message: "File size exceeds 20MB limit for LM." });
-          return;
-        }
-
         if (file.type.startsWith('image/')) {
           const imgReader = new FileReader();
           imgReader.onload = (event) => {
@@ -2789,17 +2658,14 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
 
   const handleIdeFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      Array.from(e.target.files).forEach(file => {
-        if (file.size > 10 * 1024 * 1024) {
-          setAlertModal({ isOpen: true, message: "File size exceeds 10MB limit." });
-          return;
-        }
-
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        const fileName = (file as any).webkitRelativePath || file.name;
         if (file.type.startsWith('image/')) {
           const imgReader = new FileReader();
           imgReader.onload = (event) => {
             const dataUrl = event.target?.result as string;
-            setSessionAssets(prev => ({ ...prev, [file.name]: dataUrl }));
+            setSessionAssets(prev => ({ ...prev, [fileName]: dataUrl }));
           };
           imgReader.readAsDataURL(file);
         }
@@ -2847,19 +2713,19 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
           reader.onload = async (event) => {
             try {
               const data = event.target?.result as ArrayBuffer;
-              const extractor = await createExtractorFromData(new Uint8Array(data));
+              const extractor = await getUnrarExtractor(data);
               const list = extractor.getFileList();
               const arcFiles = Array.from(list.fileHeaders);
               
               for (const header of arcFiles as any[]) {
                 if (header.flags.directory) continue;
-                const extracted = extractor.extractFiles([header.name]);
-                const fileData = extracted.files[0];
+                const extracted = extractor.extract({ files: [header.name] });
+                const fileData = Array.from(extracted.files)[0];
                 if (!fileData) continue;
 
                 const entryName = header.name.toLowerCase();
                 const title = header.name;
-                const uint8 = fileData.extract[1];
+                const uint8 = fileData.extraction;
 
                 const text = new TextDecoder().decode(uint8);
                 if (!text.substring(0, 1000).includes('\0')) {
@@ -3004,32 +2870,34 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
     if (files.length === 0) return;
     
     files.forEach(file => {
+      const fileNameWithFolder = (file as any).webkitRelativePath || file.name;
+      
       // Handle RAR files
       if (file.name.endsWith('.rar')) {
         const reader = new FileReader();
         reader.onload = async (event) => {
           try {
             const data = event.target?.result as ArrayBuffer;
-            const extractor = await createExtractorFromData(new Uint8Array(data));
+            const extractor = await getUnrarExtractor(data);
             const list = extractor.getFileList();
             const arcFiles = Array.from(list.fileHeaders);
             
             for (const header of arcFiles as any[]) {
               if (header.flags.directory) continue;
-              const extracted = extractor.extractFiles([header.name]);
-              const fileData = extracted.files[0];
+              const extracted = extractor.extract({ files: [header.name] });
+              const fileData = Array.from(extracted.files)[0];
               if (!fileData) continue;
 
               const entryName = header.name.toLowerCase();
               const title = header.name.split(/[/\\]/).pop() || header.name;
-              const uint8 = fileData.extract[1];
+              const uint8 = fileData.extraction;
 
               if (entryName.endsWith('.pdf')) {
                 const base64 = btoa(uint8.reduce((data, byte) => data + String.fromCharCode(byte), ''));
                 setSelectedFiles(prev => [...prev, { data: base64, mimeType: 'application/pdf', name: title }]);
               } else if (entryName.endsWith('.docx')) {
                 try {
-                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.buffer });
+                  const result = await mammoth.extractRawText({ arrayBuffer: uint8.slice().buffer });
                   const encodedData = btoa(unescape(encodeURIComponent(result.value)));
                   setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
                 } catch (err) { console.error("RAR DOCX err", err); }
@@ -3107,7 +2975,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
         const imgReader = new FileReader();
         imgReader.onload = (event) => {
           const dataUrl = event.target?.result as string;
-          setSessionAssets(prev => ({ ...prev, [file.name]: dataUrl }));
+          setSessionAssets(prev => ({ ...prev, [fileNameWithFolder]: dataUrl }));
         };
         imgReader.readAsDataURL(file);
       }
@@ -3137,7 +3005,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
             setSelectedFiles(prev => [...prev, {
               data: encodedData, 
               mimeType: 'text/plain',
-              name: file.name
+              name: fileNameWithFolder
             }]);
 
             if (Object.keys(images).length > 0) {
@@ -3484,6 +3352,9 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                       <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}>
                         <span className="text-lg">💻</span> Upload from device
                       </div>
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
+                        <span className="text-lg">📁</span> Upload Folder
+                      </div>
                       <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setAlertModal({ isOpen: true, message: "Google Drive integration coming soon!" }); setFileMenuOpen(false); }}>
                         <span className="text-lg">☁️</span> Google Drive
                       </div>
@@ -3631,6 +3502,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                 </div>
 
                 <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
+                <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
                 <input 
                   type="text" 
                   value={inputText}
@@ -3706,7 +3578,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
             >
               {showScrollBottom && (
                 <button 
-                  onClick={scrollToBottom}
+                  onClick={() => scrollToBottom()}
                   className={`fixed bottom-24 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                 >
                   <div className="relative">
@@ -3724,157 +3596,24 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                 </div>
               ) : (
                 messages.map((msg, i) => (
-                <div key={i} className={`flex w-full mb-8 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[90%] md:max-w-[85%] p-4 md:p-6 rounded-2xl md:rounded-3xl text-[15px] md:text-[16px] leading-relaxed relative group ${
-                    msg.role === 'user' 
-                      ? (theme === 'dark' ? 'bg-[#333] text-white shadow-xl' : 'bg-black text-white shadow-lg')
-                      : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
-                  }`}>
-                    {msg.text.startsWith('[SANDBOX]') && msg.role === 'user' && (
-                       <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-2"><PenTool size={10}/> Sandbox instruction</div>
-                    )}
-                    {msg.imageUrl && (
-                      <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-                        <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain blur-0 transition-all duration-300" referrerPolicy="no-referrer" />
-                      </div>
-                    )}
-                    {msg.videoUrl && (
-                      <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-                        <video controls src={msg.videoUrl} className="max-w-full h-auto object-contain" />
-                      </div>
-                    )}
-                    {msg.audioUrl && (
-                      <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-                        <audio controls src={msg.audioUrl} className="w-full" />
-                      </div>
-                    )}
-                    <div className={msg.role === 'user' ? 'text-white' : ''}>
-                      {msg.role === 'user' ? msg.text.replace('[SANDBOX]', '').trim() : null}
-                    </div>
-                    {msg.role === 'ai' ? (
-                      <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none`}>
-                        {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
-                          <div className="flex flex-col gap-2">
-                             <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
-                             <MemoizedMarkdown content={msg.text.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
-                          </div>
-                        ) : (
-                          <MemoizedMarkdown content={msg.text.replace('[SANDBOX]', '').trim()} theme={theme} />
-                        )}
-                        
-                        {/* AI Message Actions */}
-                        <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
-                          <button onClick={() => navigator.clipboard.writeText(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
-                            <Copy size={14} />
-                          </button>
-                          <button onClick={() => {
-                            if (navigator.share) {
-                              navigator.share({ title: 'Xer0byte AI Response', text: msg.text }).catch(console.error);
-                            } else {
-                              navigator.clipboard.writeText(msg.text);
-                              setAlertModal({ isOpen: true, message: "Copied to clipboard to share!" });
-                            }
-                          }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Share">
-                            <Share size={14} />
-                          </button>
-                          <button onClick={() => {
-                            const utterance = new SpeechSynthesisUtterance(msg.text);
-                            window.speechSynthesis.speak(utterance);
-                          }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Read Aloud">
-                            <Volume2 size={14} />
-                          </button>
-                          <button className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Good response">
-                            <ThumbsUp size={14} />
-                          </button>
-                          <button className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Bad response">
-                            <ThumbsDown size={14} />
-                          </button>
-                          {i === messages.length - 1 && (
-                            <button onClick={() => {
-                              // Find last user message
-                              const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-                              if (lastUserMsg) {
-                                setInputText(lastUserMsg.text);
-                                // Optional: auto-send or just populate input
-                              }
-                            }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Regenerate">
-                              <RefreshCw size={14} />
-                            </button>
-                          )}
-                          {msg.text.length > 200 && (
-                            <button onClick={() => {
-                              if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                              if (user.role !== 'admin' && user.plan === 'free') {
-                                setModals(prev => ({ ...prev, upgradePro: true }));
-                                return;
-                              }
-                              let content = msg.text;
-                              let lang = 'python';
-                              const codeMatch = content.match(/```([a-z0-9#\-\+]+)?\n([\s\S]*?)```/i);
-                              if (codeMatch && codeMatch.length > 2) {
-                                lang = (codeMatch[1] || 'python').toLowerCase();
-                                const supportedLangs = ['html', 'javascript', 'typescript', 'python', 'java', 'csharp', 'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'elixir', 'erlang', 'c', 'cpp', 'rust', 'zig', 'nim', 'd', 'ada', 'assembly', 'r', 'julia', 'sql', 'prolog', 'lisp', 'haskell', 'clojure', 'scala', 'ocaml', 'fsharp', 'bash', 'basic', 'cobol', 'crystal', 'fortran', 'groovy', 'lua', 'pascal', 'perl', 'brainfuck'];
-                                if (!supportedLangs.includes(lang)) {
-                                  if (lang === 'js' || lang === 'jsx') lang = 'javascript';
-                                  else if (lang === 'ts' || lang === 'tsx') lang = 'typescript';
-                                  else if (lang === 'py') lang = 'python';
-                                  else if (lang === 'c++') lang = 'cpp';
-                                  else if (lang === 'c#') lang = 'csharp';
-                                  else if (lang === 'sh') lang = 'bash';
-                                  else lang = 'python';
-                                }
-                                content = content.match(/```[\s\S]*?```/g)?.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n') || content;
-                              } else {
-                                const codeMatchGeneral = content.match(/```[\s\S]*?```/g);
-                                if (codeMatchGeneral) content = codeMatchGeneral.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n');
-                              }
-                              setCanvasLanguage(lang);
-                              setCanvasContent(content);
-                              setCanvasActiveProjectId(null);
-                              setView('ide');
-                            }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Run in Live Sandbox">
-                              <Play size={14} /> <span className="hidden md:inline">Run Code</span>
-                            </button>
-                          )}
-                          {(msg.text.length > 200 || msg.text.includes('```')) && (
-                            <button onClick={() => {
-                              if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                              if (user.role !== 'admin' && user.plan === 'free') {
-                                setModals(prev => ({ ...prev, upgradePro: true }));
-                                return;
-                              }
-                              let content = msg.text;
-                              const codeMatch = content.match(/```[\s\S]*?```/g);
-                              if (codeMatch && codeMatch.length > 0) {
-                                content = codeMatch.map(block => block.replace(/```[a-z]*\n/, '').replace(/```$/, '')).join('\n\n');
-                              }
-                              setCanvasContent(content);
-                              setCanvasActiveProjectId(null);
-                              setView('ide');
-                            }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Open in Sandbox">
-                              <PenTool size={14} />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="relative">
-                        {msg.text}
-                        {/* User Message Actions */}
-                        <div className="absolute -bottom-10 right-0 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-2">
-                          <button onClick={() => setInputText(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Edit">
-                            <Edit2 size={14} />
-                          </button>
-                          <button onClick={() => navigator.clipboard.writeText(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
-                            <Copy size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )))
-              }
+                  <ChatMessage 
+                    key={msg.id || i}
+                    msg={msg}
+                    i={i}
+                    messagesLength={messages.length}
+                    theme={theme}
+                    user={user}
+                    copyToClipboard={copyToClipboard}
+                    setAlertModal={setAlertModal}
+                    setInputText={setInputText}
+                    setCanvasLanguage={setCanvasLanguage}
+                    setCanvasContent={setCanvasContent}
+                    setCanvasActiveProjectId={setCanvasActiveProjectId}
+                    setView={setView}
+                    setModals={setModals}
+                  />
+                ))
+              )}
               {isThinking && (
                 <div className="flex w-full justify-start">
                   <div className={`max-w-[80%] p-4 rounded-3xl text-[16px] leading-relaxed flex items-center gap-2 ${theme === 'dark' ? 'bg-[#111] text-[#ddd]' : 'bg-[#f0f0f0] text-black'}`}>
@@ -3910,6 +3649,9 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                       <div className={`absolute bottom-12 left-0 w-48 rounded-xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
                         <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}>
                           <span className="text-lg">💻</span> Upload from device
+                        </div>
+                        <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
+                          <span className="text-lg">📁</span> Upload Folder
                         </div>
                         <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setAlertModal({ isOpen: true, message: "Google Drive integration coming soon!" }); setFileMenuOpen(false); }}>
                           <span className="text-lg">☁️</span> Google Drive
@@ -4058,6 +3800,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                   </div>
 
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
+                  <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
                   <input 
                     type="text" 
                     value={inputText}
@@ -4681,7 +4424,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                       >
                         {showIdeScrollBottom && (
                           <button 
-                            onClick={scrollToIdeBottom}
+                            onClick={() => scrollToIdeBottom()}
                             className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in hover:scale-105 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
                           >
                             <ChevronDown size={14} className="animate-bounce" />
@@ -4695,11 +4438,23 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                           </div>
                         ) : (
                           ideMessages.map((msg, i) => (
-                            <div key={msg.id || i} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                              <div className={`max-w-[90%] rounded-2xl px-3 py-2 text-xs md:text-sm ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#00ff9d] text-black font-medium' : 'bg-black text-white') : (theme === 'dark' ? 'bg-[#222] text-[#ddd]' : 'bg-white border border-[#ddd] text-black shadow-sm')}`}>
-                                {msg.text.startsWith('[SANDBOX]') ? msg.text.replace('[SANDBOX]', '').trim() : msg.text}
-                              </div>
-                            </div>
+                            <ChatMessage 
+                               key={msg.id || i}
+                               msg={msg}
+                               i={i}
+                               messagesLength={ideMessages.length}
+                               theme={theme}
+                               user={user}
+                               copyToClipboard={copyToClipboard}
+                               setAlertModal={setAlertModal}
+                               setInputText={setInputText}
+                               setCanvasLanguage={setCanvasLanguage}
+                               setCanvasContent={setCanvasContent}
+                               setCanvasActiveProjectId={setCanvasActiveProjectId}
+                               setView={setView}
+                               setModals={setModals}
+                               compact={true}
+                            />
                           ))
                         )}
                         <div ref={ideMessagesEndRef} />
@@ -4989,6 +4744,7 @@ Efficiency: Use the minimum amount of text required to solve the user's problem.
                    <div className={`flex items-center rounded-full px-2 py-1.5 border transition-all shadow-sm ${theme === 'dark' ? 'bg-[#0a0a0a] border-[#444] focus-within:border-[#00ff9d] focus-within:ring-2 focus-within:ring-[#00ff9d]/20' : 'bg-[#f5f5f5] border-[#ccc] focus-within:border-[#006633] focus-within:ring-2 focus-within:ring-[#006633]/20'}`}>
                       <div className="flex items-center gap-1 md:gap-2 px-1">
                         <input type="file" ref={ideFileInputRef} onChange={handleIdeFileSelect} className="hidden" accept="*/*" multiple />
+                        <input type="file" ref={ideFolderInputRef} onChange={handleIdeFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
                         <button onClick={() => ideFileInputRef.current?.click()} className={`p-2 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'}`}>
                           <Plus size={20} />
                         </button>
