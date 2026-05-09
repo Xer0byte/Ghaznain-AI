@@ -1735,6 +1735,13 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     const now = Date.now();
     if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 1000)) return;
     
+    // Force new conversation if we are starting from the home screen
+    const isNewStart = view === 'home' || !currentConversationId;
+    if (isNewStart) {
+      setMessages([]);
+      setCurrentConversationId(null);
+    }
+
     const messageText = text.trim();
     if (!messageText && selectedFiles.length === 0) return;
     
@@ -1778,7 +1785,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     }
     
     // Create new conversation if none exists
-    let activeConvId = currentConversationId;
+    let activeConvId = isNewStart ? null : currentConversationId;
     if (!activeConvId && user) {
       try {
         const newConv = await firestoreService.createConversation(user.id, messageText ? messageText.substring(0, 30) + "..." : "File Upload", isPrivateChat);
@@ -1813,7 +1820,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
       // Optimized history: only capture relevant context
-      const chatHistory = prepareCleanHistory(messages, 25, 850000);
+      // If it's a new start or no ID, history must be empty to avoid topic mixing
+      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(messages, 25, 850000);
 
       const inputParts: any[] = [];
       if (text) inputParts.push({ text: truncateText(text, 12000) });
@@ -1849,7 +1857,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       const systemInstruction = `You are Xer0byte AI, a world-class software engineer and multi-lingual expert assistant.
 - Your absolute priority is accuracy ("1 1 word thk hona chahiye").
-- LANGUAGE: Always match the user's language. If the user speaks Roman Urdu (Urdu written in English script), you MUST respond in fluent and clear Roman Urdu. If they speak English, respond in English.
+- LANGUAGE: Always match the user's language. If the user speaks Roman Urdu (Urdu written in English script) or Hindi/Urdu, you MUST respond in fluent and clear Roman Urdu. If they speak English, respond in English.
+- IMAGE GENERATION: You have a built-in image generator. If a user asks for an image, a drawing, or a photo, NEVER say you cannot do it. Instead, trigger the generator by including this exact tag in your response: [GENERATE_IMAGE: detailed descriptive prompt]. You can combine this with your text response.
 - CODE QUALITY: Provide modular, production-ready, and efficient code.
 - PROACTIVE: Solve the user's hidden problems and anticipate next steps.
 - TONE: High-quality, professional, and thorough. Avoid unnecessary fillers.
@@ -3094,21 +3103,13 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       {/* Sidebar Overlay for Mobile */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
-          onClick={() => setIsSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar Overlay for Mobile */}
-      {isSidebarOpen && (
-        <div 
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed md:relative top-0 bottom-0 left-0 w-[280px] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:-translate-x-full md:absolute md:top-0 md:bottom-0 md:left-0 md:z-[60]'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
+      <aside className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen flex flex-col p-4 z-50 border-r backdrop-blur-md transition-all duration-300 ease-in-out shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
         <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
           <Search size={18} />
           <input 
@@ -3256,8 +3257,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       {/* Main Content */}
       <main className={`flex-1 relative flex flex-col ${view === 'home' || view === 'imagine' ? 'items-center justify-center' : 'items-stretch justify-start'} overflow-hidden`}>
         {/* Top Left Sidebar Toggle */}
-        <div className="absolute top-5 left-6 z-20">
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`p-2 rounded-lg transition-all ${theme === 'dark' ? 'text-[#888] hover:bg-[#222] hover:text-white' : 'text-[#555] hover:bg-[#e0e0e0] hover:text-black'}`}>
+        <div className="absolute top-4 left-4 z-40">
+          <button 
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
+            className={`p-2 rounded-xl transition-all shadow-sm flex items-center justify-center ${theme === 'dark' ? 'bg-[#111] text-[#888] hover:bg-[#222] hover:text-white border border-[#222]' : 'bg-white text-[#555] hover:bg-[#f0f0f0] hover:text-black border border-[#ddd]'}`}
+            title="Toggle Sidebar"
+          >
             <Menu size={20} />
           </button>
         </div>
@@ -3536,20 +3541,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         )}
 
         {view === 'chat' && (
-          <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative">
-            <div className={`absolute top-0 left-0 right-0 z-40 p-3 md:p-4 flex items-center justify-between border-b backdrop-blur-xl ${theme === 'dark' ? 'bg-black/60 border-[#222]' : 'bg-white/60 border-[#eee]'}`}>
+          <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative px-0 md:px-4">
+            <div className={`absolute top-0 left-0 right-0 z-30 p-3 md:p-4 flex items-center justify-between border-b backdrop-blur-xl ${theme === 'dark' ? 'bg-black/60 border-[#222]' : 'bg-white/60 border-[#eee]'}`}>
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="md:hidden w-8"></div> {/* Spacer for sidebar toggle */}
-                <h2 className="font-bold text-sm md:text-base truncate max-w-[150px] md:max-w-[300px]">
+                <div className="w-10"></div> {/* Spacer for sidebar toggle button */}
+                <h2 className="font-bold text-sm md:text-base truncate max-w-[120px] sm:max-w-[180px] md:max-w-[400px]">
                   {currentConversationId ? (conversations.find(c => c.id === currentConversationId)?.title || 'Neural Chat') : 'New Chat'}
                 </h2>
-                {isPrivateChat && <span className="bg-purple-500/10 text-purple-400 text-[10px] px-2 py-0.5 rounded-full border border-purple-500/20 font-bold uppercase tracking-wider">Private</span>}
+                {isPrivateChat && <span className="bg-purple-500/10 text-purple-400 text-[9px] px-2 py-0.5 rounded-full border border-purple-500/20 font-bold uppercase tracking-wider shrink-0">Private</span>}
               </div>
               <button 
                 onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); }}
-                className={`p-1.5 md:p-2 rounded-xl border transition-all flex items-center gap-1 md:gap-2 text-xs font-bold leading-none ${theme === 'dark' ? 'border-[#333] text-[#888] hover:border-[#777] hover:text-white' : 'border-[#ddd] text-[#555] hover:border-[#999] hover:text-black'}`}
+                className={`p-1.5 md:p-2 rounded-xl border transition-all flex items-center gap-1.5 text-[10px] sm:text-xs font-bold leading-none ${theme === 'dark' ? 'border-[#333] text-[#888] hover:border-[#777] hover:text-white' : 'border-[#ddd] text-[#555] hover:border-[#999] hover:text-black'}`}
               >
-                <Plus size={16} /> <span className="hidden sm:inline">New Chat</span>
+                <Plus size={14} className="sm:w-4 sm:h-4" /> <span className="hidden xs:inline">New Chat</span>
               </button>
             </div>
 
@@ -3562,7 +3567,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             <div 
               ref={messagesContainerRef}
               onScroll={handleManualScroll}
-              className="flex-1 overflow-y-auto p-4 md:p-8 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-8 relative scroll-smooth"
+              className="flex-1 overflow-y-auto px-4 py-6 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden"
             >
               {showScrollBottom && (
                 <button 
@@ -3630,7 +3635,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 )}
                 <div className={`flex items-center rounded-full p-1.5 h-14 md:h-16 border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
                   <div className="relative flex items-center">
-                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors">
+                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
                       <Plus size={20} />
                     </div>
                     {fileMenuOpen && (
@@ -4210,7 +4215,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           <div className={`w-full flex flex-col pt-[60px] md:pt-0 pb-0 absolute inset-0 bg-black ${isFullscreen ? 'z-[100] fixed h-screen w-screen' : 'z-40 h-full'}`}>
             <div className={`flex flex-wrap justify-between items-center p-2 sm:p-4 border-b gap-2 z-10 ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-white'}`}>
               <div className="flex items-center gap-2 w-full sm:w-auto overflow-hidden">
-                <button onClick={() => setView('home')} className="p-1.5 hover:opacity-70 flex-shrink-0"><X size={18}/></button>
+                <button onClick={handleNewChat} className="p-1.5 hover:opacity-70 flex-shrink-0" title="Close & New Chat"><X size={18}/></button>
                 <div className="flex items-center flex-shrink-0">
                   <button 
                     onClick={() => { setShowIdeHistory(!showIdeHistory); setShowIdeChat(false); setShowIdeDatabase(false); }} 

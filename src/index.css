@@ -1,1 +1,63 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html, body {
+    @apply h-full w-full overflow-x-hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply antialiased text-base leading-relaxed;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Prevent text from going outside its container globally */
+  * {
+    @apply break-words;
+    overflow-wrap: break-word;
+  }
+}
+
+@layer components {
+  /* Scrollbar styling for better presentation on all devices */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-400/20 rounded-full hover:bg-gray-400/40 transition-colors;
+  }
+
+  .dark ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 hover:bg-white/20;
+  }
+
+  /* Custom responsive spacing and layout utilities */
+  .chat-container {
+    @apply w-full max-w-4xl mx-auto px-4 md:px-6;
+  }
+
+  /* Ensure syntax highlighting doesn't break layout */
+  pre {
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    border-radius: 0.75rem !important;
+  }
+}
+
+/* Fix for mobile keyboard pushing up content */
+@media (max-width: 768px) {
+  .chat-input-container {
+    @apply sticky bottom-0 z-50;
+  }
+}
