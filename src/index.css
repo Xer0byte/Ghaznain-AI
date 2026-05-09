@@ -9,17 +9,18 @@
   html, body {
     @apply h-full w-full overflow-x-hidden;
     -webkit-tap-highlight-color: transparent;
+    max-width: 100vw;
   }
 
   body {
-    @apply antialiased text-base leading-relaxed;
+    @apply antialiased text-base leading-relaxed overflow-x-hidden;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
   /* Prevent text from going outside its container globally */
   * {
     @apply break-words;
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
   }
 }
 
@@ -44,7 +45,7 @@
 
   /* Custom responsive spacing and layout utilities */
   .chat-container {
-    @apply w-full max-w-4xl mx-auto px-4 md:px-6;
+    @apply w-full max-w-4xl mx-auto px-4 md:px-6 min-w-0;
   }
 
   /* Ensure syntax highlighting doesn't break layout */

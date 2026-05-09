@@ -135,7 +135,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       transition={{ duration: 0.3, delay: 0.05 }}
       className={`flex w-full ${compact ? 'mb-4' : 'mb-8'} ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
     >
-      <div className={`${compact ? 'max-w-[95%] p-3 text-xs md:text-sm' : 'max-w-[90%] md:max-w-[85%] p-4 md:p-6 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group overflow-hidden break-words whitespace-pre-wrap ${
+      <div className={`${compact ? 'max-w-[95%] p-3 text-xs md:text-sm' : 'max-w-[90%] md:max-w-[85%] p-4 md:p-6 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group overflow-hidden break-all whitespace-pre-wrap ${
         msg.role === 'user' 
           ? (theme === 'dark' ? (compact ? 'bg-[#00ff9d] text-black font-medium' : 'bg-[#333] text-white shadow-xl') : 'bg-black text-white shadow-lg')
           : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
@@ -159,12 +159,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           </div>
         )}
         
-        <div className={!isAI ? 'text-white w-full overflow-hidden break-words' : 'w-full'}>
+        <div className={!isAI ? 'text-white w-full overflow-hidden break-all' : 'w-full overflow-hidden min-w-0'}>
           {!isAI ? msg.text.replace('[SANDBOX]', '').trim() : null}
         </div>
         
         {isAI ? (
-          <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none w-full overflow-hidden break-words`}>
+          <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none w-full overflow-hidden break-all min-w-0`}>
             {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
               <div className="flex flex-col gap-2">
                  <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
