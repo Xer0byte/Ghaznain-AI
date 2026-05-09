@@ -1,4 +1,5 @@
 import { GoogleGenAI, Modality, ThinkingLevel } from '@google/genai';
+import { estimateTokens } from './utils';
 
 let googleAiClient: GoogleGenAI | null = null;
 function getAiClient() {
@@ -15,23 +16,18 @@ function getAiClient() {
 
 function logContextSize(config: any) {
   try {
-    let estimate = 0;
-    if (config.contents) {
-      const contents = Array.isArray(config.contents) ? config.contents : [config.contents];
-      contents.forEach((c: any) => {
-        if (c.parts) {
-          c.parts.forEach((p: any) => {
-            if (p.text) estimate += p.text.length;
-            if (p.inlineData?.data) estimate += (p.inlineData.data.length * 0.75);
-          });
-        }
-      });
+    const contents = Array.isArray(config.contents) ? config.contents : [config.contents];
+    const tokens = estimateTokens(contents);
+    
+    if (tokens > 500) {
+      console.log(`AI context size estimate: ~${tokens.toLocaleString()} tokens`);
     }
-    // High frequency logging can slow down the browser if the object is huge
-    if (estimate > 500) {
-      console.log(`AI context size estimate: ~${Math.round(estimate / 1024)} KB`);
+
+    if (tokens > 1000000) {
+      console.warn("DANGER: AI context size likely exceeds 1M token limit!");
     }
-    return estimate;
+    
+    return tokens;
   } catch (e) {
     return 0;
   }
@@ -41,7 +37,12 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   const ai = getAiClient();
   let lastError: any = null;
   
-  logContextSize(config);
+  const estimatedTokens = logContextSize(config);
+  
+  // If we're obviously over the limit, don't even try and waste quota/latency
+  if (estimatedTokens > 1200000) {
+    throw new Error("Context window full. Please start a new conversation or remove some attached files.");
+  }
 
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -49,7 +50,17 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
         config.model = 'gemini-3-flash-preview';
       }
 
-      return await ai.models.generateContentStream(config);
+      const request: any = {
+        model: config.model || 'gemini-3-flash-preview',
+        contents: config.contents,
+        config: {
+          system_instruction: config.systemInstruction,
+          ...config.generationConfig
+        }
+      };
+      if (config.tools) request.tools = config.tools;
+
+      return await ai.models.generateContentStream(request);
     } catch (error: any) {
       lastError = error;
       const errorMsg = error.message?.toUpperCase() || "";
@@ -87,7 +98,17 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
         config.model = 'gemini-3-flash-preview';
       }
 
-      return await ai.models.generateContent(config);
+      const request: any = {
+        model: config.model || 'gemini-3-flash-preview',
+        contents: config.contents,
+        config: {
+          system_instruction: config.systemInstruction,
+          ...config.generationConfig
+        }
+      };
+      if (config.tools) request.tools = config.tools;
+
+      return await ai.models.generateContent(request);
     } catch (error: any) {
       lastError = error;
       const errorMsg = error.message?.toUpperCase() || "";

@@ -7,139 +7,15 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 
 import VoiceAI from './components/VoiceAI';
-import CursorTrailCanvas from './components/CursorTrailCanvas';
 import NotebookUI from './components/NotebookUI';
 import { ChatMessage } from './components/ChatMessage';
-
-const ParticleBackground = ({ theme }: { theme: 'dark' | 'light' }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    let w = canvas.width = window.innerWidth;
-    let h = canvas.height = window.innerHeight;
-    let animationFrameId: number;
-
-    const mouse = { x: null as number | null, y: null as number | null, down: false };
-
-    const handleResize = () => {
-      w = canvas.width = window.innerWidth;
-      h = canvas.height = window.innerHeight;
-    };
-
-    const handleMouseMove = (e: MouseEvent) => {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
-    };
-    const handleMouseDown = () => (mouse.down = true);
-    const handleMouseUp = () => (mouse.down = false);
-    const handleMouseOut = () => { mouse.x = null; mouse.y = null; };
-
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mousedown', handleMouseDown);
-    window.addEventListener('mouseup', handleMouseUp);
-    window.addEventListener('mouseout', handleMouseOut);
-
-    class Node {
-      x: number; y: number; ox: number; oy: number; vx: number; vy: number; r: number;
-      constructor() {
-        this.x = Math.random() * w;
-        this.y = Math.random() * h;
-        this.ox = this.x;
-        this.oy = this.y;
-        this.vx = 0;
-        this.vy = 0;
-        this.r = Math.random() * 2.0 + 0.7;
-      }
-      update() {
-        if (mouse.x !== null && mouse.y !== null) {
-          let dx = mouse.x - this.x;
-          let dy = mouse.y - this.y;
-          let d = Math.hypot(dx, dy);
-          if (d < 260) {
-            let f = (260 - d) / 260;
-            let p = mouse.down ? f * 16 : f * 1.2;
-            this.vx -= dx * p * 0.18;
-            this.vy -= dy * p * 0.18;
-          }
-        }
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vx *= 0.96;
-        this.vy *= 0.96;
-        this.x += (this.ox - this.x) * 0.005;
-        this.y += (this.oy - this.y) * 0.005;
-      }
-      draw() {
-        if (!ctx) return;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-        ctx.fillStyle = theme === 'dark' ? '#ffffff' : '#000000';
-        ctx.fill();
-      }
-    }
-
-    const NodeCount = window.innerWidth < 768 ? 12 : 20;
-    const nodes = Array.from({ length: NodeCount }, () => new Node());
-
-    const animate = () => {
-      if (!ctx) return;
-      ctx.fillStyle = theme === 'dark' ? '#000000' : '#f0f0f0';
-      ctx.fillRect(0, 0, w, h);
-      
-      nodes.forEach(n => {
-        n.update();
-        n.draw();
-      });
-
-      // Optimized connection lines: lower threshold and alpha
-      ctx.lineWidth = 0.4;
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          let dx = nodes[i].x - nodes[j].x;
-          let dy = nodes[i].y - nodes[j].y;
-          let d = dx * dx + dy * dy; // Use distance squared for fast comparison
-          if (d < 14400) { // 120^2
-            ctx.beginPath();
-            ctx.moveTo(nodes[i].x, nodes[i].y);
-            ctx.lineTo(nodes[j].x, nodes[j].y);
-            ctx.strokeStyle = theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-            ctx.stroke();
-          }
-        }
-      }
-      animationFrameId = requestAnimationFrame(animate);
-    };
-
-    animate();
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mousedown', handleMouseDown);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('mouseout', handleMouseOut);
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [theme]);
-
-  // style will-change for performance
-  return <canvas ref={canvasRef} className="fixed inset-0 -z-10 opacity-70" style={{ pointerEvents: 'none', willChange: 'transform' }} />;
-};
-
-
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1067,6 +943,7 @@ export default function App() {
   const profilePhotoInputRef = useRef<HTMLInputElement>(null);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
+  const prevConvIdRef = useRef<string | null>(null);
   const lastSendTimeRef = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const [isMicMenuOpen, setIsMicMenuOpen] = useState(false);
@@ -1444,14 +1321,6 @@ export default function App() {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !currentConversationId) return;
-    const unsubscribe = firestoreService.subscribeToMessages(user.id, currentConversationId, (msgs) => {
-      setMessages(msgs);
-    });
-    return () => unsubscribe();
-  }, [user, currentConversationId]);
-
-  useEffect(() => {
     if (!user || !currentIdeConversationId) return;
     const unsubscribe = firestoreService.subscribeToSandboxMessages(user.id, currentIdeConversationId, (msgs) => {
       setIdeMessages(msgs);
@@ -1612,13 +1481,22 @@ Return "Code executed successfully with no output." if the program produces abso
     }
 
     const inputParts: any[] = [{ text: truncateText(originalPrompt, 15000) }];
+    let totalIdeFileSize = 0;
+    const MAX_IDE_FILE_SIZE = 2 * 1024 * 1024; // 2MB base64
+
     for (const file of ideSelectedFiles) {
-      inputParts.push({
-        inlineData: {
-          data: file.data.includes(',') ? file.data.split(',')[1] : file.data,
-          mimeType: file.mimeType
-        }
-      });
+      const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+      if (totalIdeFileSize + fileData.length < MAX_IDE_FILE_SIZE) {
+        inputParts.push({
+          inlineData: {
+            data: fileData,
+            mimeType: getGeminiCompatibleMimeType(file.mimeType)
+          }
+        });
+        totalIdeFileSize += fileData.length;
+      } else {
+        console.warn(`IDE: File ${file.name} skipped due to context size limits.`);
+      }
     }
 
     setIdeSelectedFiles([]);
@@ -1655,13 +1533,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const aiMsgId = (Date.now() + 1).toString();
       
       try {
-        const cleanedHistory = ideMessages.slice(-3).map(m => {
-          let text = truncateText(m.text, 5000); // Very aggressive truncation
-          if (m.role === 'ai' && text.includes('```') && text.length > 2000) {
-            text = text.replace(/```[\s\S]*?```/g, '(Code updated in editor)').substring(0, 1000);
-          }
-          return { role: m.role === 'ai' ? 'model' : 'user', parts: [{ text }] };
-        });
+        const cleanedHistory = prepareCleanHistory(ideMessages, 10, 700000);
 
         // Add initial AI message placeholder
         setIdeMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
@@ -1804,12 +1676,56 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
   useEffect(() => {
     if (!user || !currentConversationId) {
-      setMessages([]);
+      if (!isSendingRef.current) {
+        setMessages([]);
+      }
+      prevConvIdRef.current = null;
       setIsFetching(false);
       return;
     }
+
+    setIsFetching(true);
+    
+    // Logic to clear old messages when switching conversations
+    // We clear if we are switching from one ID to another (A -> B)
+    // We clear if we are switching from null to ID (null -> B) ONLY IF we aren't currently sending a new message
+    if (prevConvIdRef.current !== currentConversationId) {
+       if (prevConvIdRef.current !== null || !isSendingRef.current) {
+         setMessages([]);
+       }
+    }
+    
+    prevConvIdRef.current = currentConversationId;
+
     const unsubscribe = firestoreService.subscribeToMessages(user.id, currentConversationId, (msgs) => {
-      setMessages(msgs);
+      setMessages(prev => {
+        // Find if we have any active optimistic or streaming messages
+        const optimisticMessages = prev.filter(m => m.id && typeof m.id === 'string' && (m.id.endsWith("-streaming") || m.id.endsWith("-user-optimistic") || m.id.endsWith("-ai-final")));
+        
+        const combined = [...msgs];
+        
+        optimisticMessages.forEach(optMsg => {
+          // Use ID matching primarily, fallback to text if ID is lost/missing
+          const alreadyIn = msgs.some(m => 
+            m.id === optMsg.id || 
+            (m.role === optMsg.role && m.text.trim() === optMsg.text.trim() && optMsg.text.length > 5)
+          );
+          if (!alreadyIn) {
+            combined.push(optMsg);
+          }
+        });
+        
+        // Normalize timestamps for sorting
+        const getTs = (m: any) => {
+          if (!m.timestamp) return Date.now();
+          if (typeof m.timestamp === 'number') return m.timestamp;
+          if (m.timestamp.toMillis) return m.timestamp.toMillis();
+          if (m.timestamp.seconds) return m.timestamp.seconds * 1000;
+          return Date.now();
+        };
+
+        return combined.sort((a, b) => getTs(a) - getTs(b));
+      });
       setIsFetching(false);
     });
     return () => unsubscribe();
@@ -1836,6 +1752,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     setSelectedFiles([]);
     setIsThinking(true);
 
+    const userMsgId = Date.now().toString() + "-user-optimistic";
+    const userMessage: any = { 
+      role: 'user', 
+      text: messageText || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : ""),
+      id: userMsgId,
+      timestamp: Date.now()
+    };
+    
+    // Optimistic UI for user message
+    setMessages(prev => [...prev, userMessage]);
+
     if (view !== 'chat') {
       setView('chat');
     }
@@ -1844,6 +1771,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     if (user.role !== 'admin' && user.plan === 'free') {
       if (selectedModel === 'pro' || selectedModel === 'thinking' || extendedThinking) {
         setModals(prev => ({ ...prev, upgradePro: true }));
+        isSendingRef.current = false;
+        setIsThinking(false);
         return;
       }
     }
@@ -1862,6 +1791,15 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
     }
 
+    // Save user message to Firestore in background
+    if (activeConvId && user) {
+      firestoreService.addMessage(user.id, activeConvId, { 
+        role: 'user', 
+        text: userMessage.text,
+        imageUrl: null 
+      }, userMsgId).catch(err => console.error("Failed to save user message", err));
+    }
+
     try {
       // Check limits (Firestore based)
       if (user.role !== 'admin' && user.plan === 'free' && (user.messageCount || 0) >= 16) {
@@ -1875,38 +1813,55 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
       // Optimized history: only capture relevant context
-      const chatHistory = messages.slice(-5).map((msg: any) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: truncateText(msg.text, 2000) }]
-      }));
+      const chatHistory = prepareCleanHistory(messages, 25, 850000);
 
       const inputParts: any[] = [];
-      if (text) inputParts.push({ text: truncateText(text, 10000) });
+      if (text) inputParts.push({ text: truncateText(text, 12000) });
       if (currentFiles.length > 0) {
-        currentFiles.forEach(file => {
-          inputParts.push({
-            inlineData: {
-              data: file.data.includes(',') ? file.data.split(',')[1] : file.data,
-              mimeType: file.mimeType
-            }
-          });
+        // Limit total files size to prevent context overflow
+        // Gemini 1.5 Flash has 1M token limit. 
+        // 1MB of text/binary is roughly 250k-1M tokens depending on encoding.
+        let totalFileSize = 0;
+        const MAX_TOTAL_FILE_SIZE = 1.5 * 1024 * 1024; // 1.5MB base64 (~1.1MB raw)
+
+        currentFiles.forEach((file, idx) => {
+          const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+          if (totalFileSize + fileData.length < MAX_TOTAL_FILE_SIZE) {
+            inputParts.push({
+              inlineData: {
+                data: fileData,
+                mimeType: getGeminiCompatibleMimeType(file.mimeType)
+              }
+            });
+            totalFileSize += fileData.length;
+          } else {
+             console.warn(`File ${file.name} skipped because total attachments exceed safe limits for current AI model.`);
+          }
         });
       }
 
-      // Add a temporary AI message for streaming
-      const aiMsgId = Date.now().toString() + "-ai-chat";
-      setMessages(prev => [...prev, { role: 'ai', text: "...", id: aiMsgId }]);
+    // Add a temporary AI message for streaming
+    const aiMsgId = Date.now().toString() + "-ai-streaming";
+    setMessages(prev => [...prev, { role: 'ai', text: "...", id: aiMsgId }]);
+    
+    // Create a final ID that we'll save to Firestore later
+    const finalAiMsgId = Date.now().toString() + "-ai-final";
       
-      const systemInstruction = `You are Xer0byte AI. Respond with extreme speed.
-- Direct answers only.
-- No intro/outro.
-- Max code quality, min fluff.
-- Be concise.`;
+      const systemInstruction = `You are Xer0byte AI, a world-class software engineer and multi-lingual expert assistant.
+- Your absolute priority is accuracy ("1 1 word thk hona chahiye").
+- LANGUAGE: Always match the user's language. If the user speaks Roman Urdu (Urdu written in English script), you MUST respond in fluent and clear Roman Urdu. If they speak English, respond in English.
+- CODE QUALITY: Provide modular, production-ready, and efficient code.
+- PROACTIVE: Solve the user's hidden problems and anticipate next steps.
+- TONE: High-quality, professional, and thorough. Avoid unnecessary fillers.
+- DOWNLOADABLE FILES: ONLY trigger the download mechanism if the user specifically requests to "download", "save as zip", "dwnaloadable file d", or "project download kr d". 
+  - To trigger: Use [FILE: path/to/file.ext] followed by the code block for each file.
+  - AND append the tag [ALLOW_ZIP_DOWNLOAD] at the very end of your response.
+- IF NOT REQUESTED: If the user just wants code or help without mentioning a "download", provide standard markdown code blocks and DO NOT use the [FILE:] or [ALLOW_ZIP_DOWNLOAD] tags.`;
       
       const streamResult = await generateContentStreamWithRetry({
         model: geminiModel,
+        systemInstruction,
         contents: [
-          { role: 'user', parts: [{ text: systemInstruction }] },
           ...chatHistory,
           { role: 'user', parts: inputParts }
         ]
@@ -1924,24 +1879,41 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           // Throttle state updates to 60fps equivalent or slower for better scrolling perf
           const now = Date.now();
           if (now - lastUpdateTime > 80 || fullAiText.length < 50) {
-             setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullAiText } : m));
+             setMessages(prev => {
+               if (prev.length === 0) return prev;
+               const lastIndex = prev.findIndex(m => m.id === aiMsgId);
+               if (lastIndex !== -1) {
+                 const next = [...prev];
+                 next[lastIndex] = { ...next[lastIndex], text: fullAiText };
+                 return next;
+               }
+               return prev;
+             });
              lastUpdateTime = now;
           }
         }
       }
-      // Final update
-      setMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: fullAiText } : m));
+      // Final update and sync to firestore
+      setMessages(prev => {
+        if (prev.length === 0) return prev;
+        const lastIndex = prev.findIndex(m => m.id === aiMsgId);
+        if (lastIndex !== -1) {
+          const next = [...prev];
+          // Replace streaming message with "finalized" message in local state
+          next[lastIndex] = { ...next[lastIndex], text: fullAiText, id: finalAiMsgId };
+          return next;
+        }
+        return prev;
+      });
 
       // Background tasks
-      Promise.resolve().then(async () => {
-        if (activeConvId && user) {
-          await firestoreService.addMessage(user.id, activeConvId, { role: 'ai', text: fullAiText, imageUrl: null });
-          await firestoreService.updateUserProfile(user.id, { 
-            messageCount: (user.messageCount || 0) + 1,
-            lastActive: Date.now()
-          });
-        }
-      });
+      if (activeConvId && user) {
+        await firestoreService.addMessage(user.id, activeConvId, { role: 'ai', text: fullAiText, imageUrl: null }, finalAiMsgId);
+        await firestoreService.updateUserProfile(user.id, { 
+          messageCount: (user.messageCount || 0) + 1,
+          lastActive: Date.now()
+        });
+      }
 
       // Check if the AI decided to generate an image, music, or video
       const imageMatch = fullAiText.match(/\[GENERATE_IMAGE:\s*(.*?)\]/i);
@@ -2581,12 +2553,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     try {
       const sourceParts = lmSources.map(s => {
         if (s.type.includes('image') || s.type.includes('pdf') || s.type.includes('audio')) {
-          return { inlineData: { data: s.content, mimeType: s.type } };
+          return { inlineData: { data: s.content, mimeType: getGeminiCompatibleMimeType(s.type) } };
         } else {
           try {
             return { text: `Source Document (${s.name}):\n${atob(s.content)}` };
           } catch {
-            return { inlineData: { data: s.content, mimeType: s.type } };
+            return { inlineData: { data: s.content, mimeType: getGeminiCompatibleMimeType(s.type) } };
           }
         }
       });
@@ -2620,12 +2592,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     try {
       const sourceParts = lmSources.map(s => {
         if (s.type.includes('image') || s.type.includes('pdf') || s.type.includes('audio')) {
-          return { inlineData: { data: s.content, mimeType: s.type } };
+          return { inlineData: { data: s.content, mimeType: getGeminiCompatibleMimeType(s.type) } };
         } else {
           try {
             return { text: `Source Document (${s.name}):\n${atob(s.content)}` };
           } catch {
-            return { inlineData: { data: s.content, mimeType: s.type } };
+            return { inlineData: { data: s.content, mimeType: getGeminiCompatibleMimeType(s.type) } };
           }
         }
       });
@@ -3097,8 +3069,6 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   return (
     <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
       <div className="flex flex-1 relative overflow-hidden">
-      <ParticleBackground theme={theme} />
-      <CursorTrailCanvas theme={theme} color={theme === 'dark' ? '#00ff9d' : '#006633'} />
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
@@ -3191,7 +3161,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${(view === item.id || (item.id === 'private' && isPrivateChat)) ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}
             >
               <item.icon size={20} className={item.id === 'private' ? 'text-purple-500' : ''} />
-              <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>{item.label}</span>
+              <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>
+                {(item.id === 'chat' && messages.length > 0) ? 'Current Chat' : item.label}
+              </span>
             </div>
           ))}
           {user?.role === 'admin' && (
@@ -3565,8 +3537,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
         {view === 'chat' && (
           <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative">
+            <div className={`absolute top-0 left-0 right-0 z-40 p-3 md:p-4 flex items-center justify-between border-b backdrop-blur-xl ${theme === 'dark' ? 'bg-black/60 border-[#222]' : 'bg-white/60 border-[#eee]'}`}>
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="md:hidden w-8"></div> {/* Spacer for sidebar toggle */}
+                <h2 className="font-bold text-sm md:text-base truncate max-w-[150px] md:max-w-[300px]">
+                  {currentConversationId ? (conversations.find(c => c.id === currentConversationId)?.title || 'Neural Chat') : 'New Chat'}
+                </h2>
+                {isPrivateChat && <span className="bg-purple-500/10 text-purple-400 text-[10px] px-2 py-0.5 rounded-full border border-purple-500/20 font-bold uppercase tracking-wider">Private</span>}
+              </div>
+              <button 
+                onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); }}
+                className={`p-1.5 md:p-2 rounded-xl border transition-all flex items-center gap-1 md:gap-2 text-xs font-bold leading-none ${theme === 'dark' ? 'border-[#333] text-[#888] hover:border-[#777] hover:text-white' : 'border-[#ddd] text-[#555] hover:border-[#999] hover:text-black'}`}
+              >
+                <Plus size={16} /> <span className="hidden sm:inline">New Chat</span>
+              </button>
+            </div>
+
             {isPrivateChat && (
-              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-purple-500/20 text-purple-400 px-4 py-1.5 rounded-full text-xs font-medium border border-purple-500/30 flex items-center gap-2">
+              <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 bg-purple-500/20 text-purple-400 px-4 py-1.5 rounded-full text-xs font-medium border border-purple-500/30 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
                 Private Chat Mode
               </div>

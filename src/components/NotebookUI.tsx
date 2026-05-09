@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import { firestoreService } from '../services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText } from '../lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, prepareCleanHistory } from '../lib/utils';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -439,24 +439,30 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     const userMsg = input.trim();
     setInput('');
     
+    const newUserMessage: Message = { role: 'user', content: userMsg };
     if (user) {
-      await firestoreService.addNotebookMessage(user.id, { role: 'user', content: userMsg });
+      await firestoreService.addNotebookMessage(user.id, newUserMessage);
     } else {
-      setMessages(prev => [...prev, { role: 'user', content: userMsg }]);
+      setMessages(prev => [...prev, newUserMessage]);
     }
     
     setIsLoading(true);
 
     try {
-      const selectedSources = sources.filter(s => s.selected).slice(0, 10);
+      const selectedSources = sources.filter(s => s.selected).slice(0, 5); // Limit sources for context
       const context = selectedSources.length > 0 
-        ? `CONTEXT FROM SOURCES:\n${selectedSources.map(s => `--- SOURCE: ${s.title} ---\n${truncateText(s.content, 15000)}`).join('\n\n')}`
+        ? `CONTEXT FROM SOURCES:\n${selectedSources.map(s => `--- SOURCE: ${s.title} ---\n${truncateText(s.content, 12000)}`).join('\n\n')}`
         : "No specific sources selected. Answer based on general knowledge.";
+
+      // Include recent chat history
+      const formattedHistory = prepareCleanHistory(messages.map(m => ({ ...m, text: m.content })), 15, 600000);
 
       const stream = await generateContentStreamWithRetry({
         model: "gemini-3-flash-preview",
+        systemInstruction: `Answer the question strictly using the provided context. If the answer is found in the context, cite the source name in brackets like [Source Title]. If the answer is not in the context, clearly state that the information is not available in the provided sources, then offer a general explanation if possible.\n\n${context}`,
         contents: [
-          { role: 'user', parts: [{ text: `${context}\n\nUSER QUESTION: ${userMsg}\n\nINSTRUCTIONS: Answer the question strictly using the provided context. If the answer is found in the context, cite the source name in brackets like [Source Title]. If the answer is not in the context, clearly state that the information is not available in the provided sources, then offer a general explanation if possible.` }] }
+          ...formattedHistory,
+          { role: 'user', parts: [{ text: userMsg }] }
         ]
       });
 

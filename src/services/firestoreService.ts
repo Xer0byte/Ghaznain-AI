@@ -195,7 +195,7 @@ export const firestoreService = {
     });
   },
 
-  async addMessage(userId: string, conversationId: string, message: { role: string, text: string, imageUrl?: string | null }) {
+  async addMessage(userId: string, conversationId: string, message: { role: string, text: string, imageUrl?: string | null }, customId?: string) {
     const path = `users/${userId}/conversations/${conversationId}/messages`;
     try {
       const data = {
@@ -204,7 +204,11 @@ export const firestoreService = {
         conversationId,
         timestamp: serverTimestamp()
       };
-      await addDoc(collection(db, path), data);
+      if (customId) {
+        await setDoc(doc(db, path, customId), data);
+      } else {
+        await addDoc(collection(db, path), data);
+      }
       // Update parent conversation updatedAt
       await this.updateConversation(userId, conversationId, {});
     } catch (error) {

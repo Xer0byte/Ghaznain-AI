@@ -219,8 +219,9 @@ Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized
 
       const response = await generateContentWithRetry({
         model: "gemini-3-flash-preview",
+        systemInstruction: personaInstruction,
         contents: [
-          { role: "user", parts: [{ text: personaInstruction }] },
+          ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
           { role: "user", parts: [{ text: text }] }
         ]
       });

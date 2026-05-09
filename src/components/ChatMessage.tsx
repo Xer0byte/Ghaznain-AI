@@ -1,11 +1,12 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Share, Volume2, ThumbsUp, ThumbsDown, RefreshCw, Play, PenTool, CheckCircle, Edit2 } from 'lucide-react';
-import { copyToClipboard } from '../lib/utils';
+import { Copy, Share, Volume2, ThumbsUp, ThumbsDown, RefreshCw, Play, PenTool, CheckCircle, Edit2, Download, FolderArchive } from 'lucide-react';
+import { copyToClipboard, extractFilesFromMarkdown, downloadProjectAsZip } from '../lib/utils';
+import JSZip from 'jszip';
 
 interface ChatMessageProps {
   msg: any;
@@ -98,6 +99,34 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   setCanvasActiveProjectId, setView, setModals, compact = false
 }) => {
   const isAI = msg.role === 'ai';
+  const [isZipping, setIsZipping] = useState(false);
+  
+  const extractedFiles = useMemo(() => {
+    if (!isAI || !msg.text) return [];
+    return extractFilesFromMarkdown(msg.text);
+  }, [isAI, msg.text]);
+  
+  const showDownloadButton = useMemo(() => {
+    return isAI && extractedFiles.length > 0 && msg.text?.includes('[ALLOW_ZIP_DOWNLOAD]');
+  }, [isAI, extractedFiles, msg.text]);
+  
+  const displayMessageText = useMemo(() => {
+    if (!msg.text) return "";
+    return msg.text.replace(/\[ALLOW_ZIP_DOWNLOAD\]/g, '').trim();
+  }, [msg.text]);
+
+  const handleDownloadProject = async () => {
+    if (extractedFiles.length === 0) return;
+    setIsZipping(true);
+    try {
+      await downloadProjectAsZip('ai_generated_project', extractedFiles, JSZip);
+    } catch (error) {
+      console.error("ZIP Generation error:", error);
+      setAlertModal({ isOpen: true, message: "Failed to generate ZIP file." });
+    } finally {
+      setIsZipping(false);
+    }
+  };
   
   return (
     <motion.div 
@@ -139,12 +168,34 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
               <div className="flex flex-col gap-2">
                  <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
-                 <MemoizedMarkdown content={msg.text.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
+                 <MemoizedMarkdown content={displayMessageText.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
               </div>
             ) : (
-              <MemoizedMarkdown content={msg.text.replace('[SANDBOX]', '').trim()} theme={theme} />
+              <MemoizedMarkdown content={displayMessageText.replace('[SANDBOX]', '').trim()} theme={theme} />
             )}
             
+            {showDownloadButton && (
+              <div className={`mb-4 p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-500 ${theme === 'dark' ? 'bg-[#222]/50 border-[#444]' : 'bg-[#f0f0f0]/50 border-[#ddd]'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-[#00ff9d]/10 text-[#00ff9d]' : 'bg-[#006633]/10 text-[#006633]'}`}>
+                    <FolderArchive size={24} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-80">Project Package Detected</h4>
+                    <p className="text-[10px] opacity-60">{extractedFiles.length === 1 ? "1 file" : `${extractedFiles.length} files`} extracted for this project.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleDownloadProject}
+                  disabled={isZipping}
+                  className={`w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-md active:scale-95 ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white' : 'bg-black text-white hover:bg-gray-800'}`}
+                >
+                  {isZipping ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                  {isZipping ? 'Generating...' : 'Download Project ZIP'}
+                </button>
+              </div>
+            )}
+
             {/* AI Message Actions */}
             <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
               <button onClick={() => copyToClipboard(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
