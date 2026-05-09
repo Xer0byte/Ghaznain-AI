@@ -888,7 +888,7 @@ export default function App() {
     setConsoleInput("");
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setInputText(e.target.value);
   };
 
@@ -1250,6 +1250,8 @@ export default function App() {
   const ideMessagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const ideMessagesContainerRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const homeInputRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = useCallback((smooth = true) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
@@ -1287,6 +1289,20 @@ export default function App() {
     }
   }, [ideMessages.length, ideMessages[ideMessages.length - 1]?.text.length, isThinkingIde, settings.autoScroll, showIdeScrollBottom, view, scrollToIdeBottom]);
 
+
+  useEffect(() => {
+    if (chatInputRef.current) {
+      chatInputRef.current.style.height = 'auto';
+      chatInputRef.current.style.height = `${Math.min(chatInputRef.current.scrollHeight, 160)}px`;
+    }
+  }, [inputText, view]);
+
+  useEffect(() => {
+    if (homeInputRef.current) {
+      homeInputRef.current.style.height = 'auto';
+      homeInputRef.current.style.height = `${Math.min(homeInputRef.current.scrollHeight, 160)}px`;
+    }
+  }, [inputText, view]);
 
   const apiFetch = async (url: string, options: any = {}) => {
     // Note: apiFetch is now used primarily as a placeholder or for legacy calls.
@@ -3014,7 +3030,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     });
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     
@@ -3319,8 +3335,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   ))}
                 </div>
               )}
-              <div className={`flex items-center rounded-full p-1.5 h-14 md:h-16 border transition-all ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
-                <div className="relative flex items-center">
+              <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+                <div className="relative flex items-center mb-1">
                   <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors">
                     <Plus size={20} />
                   </div>
@@ -3381,7 +3397,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </div>
                 </div>
                 
-                <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2">
+                <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-end">
                   <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                     {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
                   </button>
@@ -3480,16 +3496,21 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
                 <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
                 <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
-                <input 
-                  type="text" 
+                <textarea 
+                  ref={homeInputRef}
                   value={inputText}
                   onChange={handleInputChange}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
+                  onKeyDown={e => { 
+                    if (e.key === 'Enter' && !e.shiftKey) { 
+                      e.preventDefault(); 
+                      handleSend(); 
+                    } 
+                  }}
                   onPaste={handlePaste}
                   placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s)` : "How can I help?"}
-                  className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
+                  className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 py-3 resize-none max-h-40 min-w-0 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
                 />
-                <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2">
+                <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end">
                   <div className="relative">
                     <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
                       <Mic size={18} />
@@ -3633,8 +3654,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     ))}
                   </div>
                 )}
-                <div className={`flex items-center rounded-full p-1.5 h-14 md:h-16 border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
-                  <div className="relative flex items-center">
+                <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+                  <div className="relative flex items-center mb-1">
                     <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
                       <Plus size={20} />
                     </div>
@@ -3695,7 +3716,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     </div>
                   </div>
                   
-                  <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2">
+                  <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-center md:self-end">
                     <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                       {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
                     </button>
@@ -3762,7 +3783,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
                           </button>
                         </div>
-
+ 
                         <div className={`px-4 py-3 flex items-center justify-between`}>
                           <div>
                             <div className="font-medium">Web Search</div>
@@ -3772,7 +3793,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${useWebSearch ? 'translate-x-4' : ''}`}></div>
                           </button>
                         </div>
-
+ 
                         <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
                         <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Persona</div>
                         
@@ -3791,19 +3812,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       </div>
                     )}
                   </div>
-
+ 
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
                   <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
-                  <input 
-                    type="text" 
+                  <textarea 
+                    ref={chatInputRef}
                     value={inputText}
                     onChange={handleInputChange}
-                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend(); } }}
+                    onKeyDown={e => { 
+                      if (e.key === 'Enter' && !e.shiftKey) { 
+                        e.preventDefault(); 
+                        handleSend(); 
+                      } 
+                    }}
                     onPaste={handlePaste}
                     placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "What's on your mind?"}
-                    className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
+                    className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-40 min-w-0 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
                   />
-                  <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2">
+                  <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end">
                     <div className="relative">
                       <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
                         <Mic size={18} />
