@@ -22,6 +22,7 @@ interface ChatMessageProps {
   setCanvasActiveProjectId: (id: string | null) => void;
   setView: (view: any) => void;
   setModals: (modals: any) => void;
+  handleEdit?: (index: number) => void;
   isThinking?: boolean;
   compact?: boolean;
 }
@@ -93,11 +94,11 @@ const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; them
   );
 });
 
-export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ 
+const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(({ 
   msg, i, messagesLength, theme, user, copyToClipboard, 
   setAlertModal, setInputText, setCanvasLanguage, setCanvasContent, 
-  setCanvasActiveProjectId, setView, setModals, compact = false
-}) => {
+  setCanvasActiveProjectId, setView, setModals, handleEdit, compact = false
+}, ref) => {
   const isAI = msg.role === 'ai';
   const [isZipping, setIsZipping] = useState(false);
   
@@ -130,158 +131,187 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   
   return (
     <motion.div 
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.05 }}
-      className={`flex w-full ${compact ? 'mb-4' : 'mb-8'} ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+      ref={ref}
+      initial={{ opacity: 0, y: 15, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ 
+        type: "spring",
+        stiffness: 260,
+        damping: 20
+      }}
+      className={`flex w-full ${compact ? 'mb-4' : 'mb-8 md:mb-12'} ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
     >
-      <div className={`${compact ? 'max-w-[95%] p-3 text-xs md:text-sm' : 'max-w-[90%] md:max-w-[85%] p-4 md:p-6 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group overflow-hidden break-all whitespace-pre-wrap ${
-        msg.role === 'user' 
-          ? (theme === 'dark' ? (compact ? 'bg-[#00ff9d] text-black font-medium' : 'bg-[#333] text-white shadow-xl') : 'bg-black text-white shadow-lg')
-          : (theme === 'dark' ? 'bg-[#18181A] border border-[#333] shadow-2xl text-[#eee]' : 'bg-white border border-[#eaeaea] shadow-xl text-[#111]')
-      }`}>
-        {msg.text.startsWith('[SANDBOX]') && msg.role === 'user' && (
-           <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-2"><PenTool size={10}/> Sandbox instruction</div>
-        )}
-        {msg.imageUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain" referrerPolicy="no-referrer" />
+      <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[95%] md:max-w-[85%] min-w-0`}>
+        {/* Role Identity */}
+        {!compact && (
+          <div className={`flex items-center gap-2 mb-1.5 px-1 text-[10px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
+            {isAI ? 'Assistant' : 'You'}
           </div>
         )}
-        {msg.videoUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <video controls src={msg.videoUrl} className="max-w-full h-auto object-contain" />
-          </div>
-        )}
-        {msg.audioUrl && (
-          <div className="mb-3 rounded-xl md:rounded-2xl overflow-hidden border border-white/10">
-            <audio controls src={msg.audioUrl} className="w-full" />
-          </div>
-        )}
-        
-        <div className={!isAI ? 'text-white w-full overflow-hidden break-all' : 'w-full overflow-hidden min-w-0'}>
-          {!isAI ? msg.text.replace('[SANDBOX]', '').trim() : null}
-        </div>
-        
-        {isAI ? (
-          <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white prose-code:text-[#00ff9d]' : 'prose-zinc prose-a:text-[#006633] prose-strong:text-black'} max-w-none w-full overflow-hidden break-all min-w-0`}>
-            {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
-              <div className="flex flex-col gap-2">
-                 <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest"><CheckCircle size={10}/> Sandbox Code Updated</div>
-                 <MemoizedMarkdown content={displayMessageText.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
-              </div>
-            ) : (
-              <MemoizedMarkdown content={displayMessageText.replace('[SANDBOX]', '').trim()} theme={theme} />
-            )}
-            
-            {showDownloadButton && (
-              <div className={`mb-4 p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-500 ${theme === 'dark' ? 'bg-[#222]/50 border-[#444]' : 'bg-[#f0f0f0]/50 border-[#ddd]'}`}>
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-[#00ff9d]/10 text-[#00ff9d]' : 'bg-[#006633]/10 text-[#006633]'}`}>
-                    <FolderArchive size={24} />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold uppercase tracking-wider opacity-80">Project Package Detected</h4>
-                    <p className="text-[10px] opacity-60">{extractedFiles.length === 1 ? "1 file" : `${extractedFiles.length} files`} extracted for this project.</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={handleDownloadProject}
-                  disabled={isZipping}
-                  className={`w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all shadow-md active:scale-95 ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white' : 'bg-black text-white hover:bg-gray-800'}`}
-                >
-                  {isZipping ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
-                  {isZipping ? 'Generating...' : 'Download Project ZIP'}
-                </button>
-              </div>
-            )}
 
-            {/* AI Message Actions */}
-            <div className={`flex flex-wrap items-center gap-1 mt-4 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity`}>
-              <button onClick={() => copyToClipboard(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
-                <Copy size={14} />
-              </button>
-              <button onClick={() => {
-                if (navigator.share) {
-                  navigator.share({ title: 'Xer0byte AI Response', text: msg.text }).catch(console.error);
-                } else {
-                  copyToClipboard(msg.text);
-                  setAlertModal({ isOpen: true, message: "Copied to clipboard to share!" });
-                }
-              }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Share">
-                <Share size={14} />
-              </button>
-              <button onClick={() => {
-                const utterance = new SpeechSynthesisUtterance(msg.text);
-                window.speechSynthesis.speak(utterance);
-              }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Read Aloud">
-                <Volume2 size={14} />
-              </button>
-              <button className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Good response">
-                <ThumbsUp size={14} />
-              </button>
-              <button className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Bad response">
-                <ThumbsDown size={14} />
-              </button>
-              {i === messagesLength - 1 && (
-                <button onClick={() => {
-                  setInputText(msg.text);
-                }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Regenerate">
-                  <RefreshCw size={14} />
-                </button>
+        <div className={`${compact ? 'p-3 text-xs md:text-sm' : 'p-4 md:p-5 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group transition-all border ${
+          msg.role === 'user' 
+            ? (theme === 'dark' 
+                ? 'bg-[#222] border-[#333] text-white shadow-lg' 
+                : 'bg-black text-white border-transparent shadow-lg')
+            : (theme === 'dark' 
+                ? 'bg-[#111] border-[#222] shadow-xl text-[#eee]' 
+                : 'bg-white border-[#eee] shadow-md text-[#111]')
+        }`}>
+          {msg.text.startsWith('[SANDBOX]') && msg.role === 'user' && (
+             <div className="flex items-center gap-1.5 opacity-60 text-[10px] uppercase font-bold tracking-widest mb-3"><PenTool size={10}/> Sandbox Instruction</div>
+          )}
+          {msg.imageUrl && (
+            <div className="mb-4 rounded-xl overflow-hidden border border-white/10 group/img relative">
+              <img src={msg.imageUrl} alt="Generated" loading="lazy" className="max-w-full h-auto object-contain" referrerPolicy="no-referrer" />
+            </div>
+          )}
+          {msg.videoUrl && (
+            <div className="mb-4 rounded-xl overflow-hidden border border-white/10">
+              <video controls src={msg.videoUrl} className="max-w-full h-auto object-contain" />
+            </div>
+          )}
+          {msg.audioUrl && (
+            <div className="mb-4 rounded-xl overflow-hidden border border-white/10">
+              <audio controls src={msg.audioUrl} className="w-full" />
+            </div>
+          )}
+          
+          <div className={!isAI ? (theme === 'dark' && compact ? 'text-black w-full' : 'text-white w-full') : 'w-full min-w-0'}>
+            {!isAI ? msg.text.replace('[SANDBOX]', '').trim() : null}
+          </div>
+          
+          {isAI ? (
+            <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white' : 'prose-zinc prose-a:text-blue-600 prose-strong:text-black'} max-w-none w-full min-w-0`}>
+              {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
+                <div className="flex flex-col gap-3">
+                   <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest border-b border-[#00ff9d]/20 pb-2"><CheckCircle size={10}/> System Updated</div>
+                   <MemoizedMarkdown content={displayMessageText.replace('--- SANDBOX UPDATE ---', '').trim()} theme={theme} />
+                </div>
+              ) : (
+                <MemoizedMarkdown content={displayMessageText.replace('[SANDBOX]', '').trim()} theme={theme} />
               )}
-              {msg.text.length > 200 && (
+              
+              {showDownloadButton && (
+                <div className={`my-6 p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${theme === 'dark' ? 'bg-[#00ff9d]/10 text-[#00ff9d]' : 'bg-black/5 text-black'}`}>
+                      <FolderArchive size={24} />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider mb-0.5">Project Ready</h4>
+                      <p className="text-[10px] opacity-50 font-medium">{extractedFiles.length} files extracted.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={handleDownloadProject}
+                    disabled={isZipping}
+                    className={`w-full sm:w-auto flex items-center justify-center gap-3 px-6 py-2.5 rounded-xl text-xs font-bold transition-all shadow-lg active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
+                  >
+                    {isZipping ? <RefreshCw size={14} className="animate-spin" /> : <Download size={14} />}
+                    {isZipping ? 'Processing...' : 'Download ZIP'}
+                  </button>
+                </div>
+              )}
+
+              {/* AI Message Actions */}
+              <div className={`flex flex-wrap items-center gap-2 mt-5 transition-all duration-200`}>
+                <button onClick={() => copyToClipboard(msg.text)} className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Copy Response">
+                  <Copy size={13} /> <span>Copy</span>
+                </button>
                 <button onClick={() => {
-                  if (!user) { setModals((prev: any) => ({...prev, signIn: true})); return; }
-                  if (user.role !== 'admin' && user.plan === 'free') {
-                    setModals((prev: any) => ({ ...prev, upgradePro: true }));
-                    return;
-                  }
-                  let content = msg.text;
-                  let lang = 'python';
-                  const codeMatch = content.match(/```([a-z0-9#\-\+]+)?\n([\s\S]*?)```/i);
-                  if (codeMatch && codeMatch.length > 2) {
-                    lang = (codeMatch[1] || 'python').toLowerCase();
-                    const supportedLangs = ['html', 'javascript', 'typescript', 'python', 'java', 'csharp', 'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'elixir', 'erlang', 'c', 'cpp', 'rust', 'zig', 'nim', 'd', 'ada', 'assembly', 'r', 'julia', 'sql', 'prolog', 'lisp', 'haskell', 'clojure', 'scala', 'ocaml', 'fsharp', 'bash', 'basic', 'cobol', 'crystal', 'fortran', 'groovy', 'lua', 'pascal', 'perl', 'brainfuck'];
-                    if (!supportedLangs.includes(lang)) {
-                      if (lang === 'js' || lang === 'jsx') lang = 'javascript';
-                      else if (lang === 'ts' || lang === 'tsx') lang = 'typescript';
-                      else if (lang === 'py') lang = 'python';
-                      else if (lang === 'c++') lang = 'cpp';
-                      else if (lang === 'c#') lang = 'csharp';
-                      else if (lang === 'sh') lang = 'bash';
-                      else lang = 'python';
-                    }
-                    content = content.match(/```[\s\S]*?```/g)?.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n') || content;
+                  if (navigator.share) {
+                    navigator.share({ title: 'AI Response', text: msg.text }).catch(console.error);
                   } else {
-                    const codeMatchGeneral = content.match(/```[\s\S]*?```/g);
-                    if (codeMatchGeneral) content = codeMatchGeneral.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n');
+                    copyToClipboard(msg.text);
+                    setAlertModal({ isOpen: true, message: "Copied to clipboard!" });
                   }
-                  setCanvasLanguage(lang);
-                  setCanvasContent(content);
-                  setCanvasActiveProjectId(null);
-                  setView('ide');
-                }} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Run in Live Sandbox">
-                  <Play size={14} /> <span className="hidden md:inline">Run Code</span>
+                }} className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Share">
+                  <Share size={13} />
                 </button>
-              )}
+                <button onClick={() => {
+                  const utterance = new SpeechSynthesisUtterance(msg.text);
+                  window.speechSynthesis.speak(utterance);
+                }} className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Speak">
+                  <Volume2 size={13} />
+                </button>
+                <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-white/10' : 'bg-gray-200'} mx-1`}></div>
+                <button className={`p-2 rounded-lg text-xs transition-colors ${theme === 'dark' ? 'text-white/20 hover:text-white' : 'text-gray-300 hover:text-black'}`} title="Helpful">
+                  <ThumbsUp size={13} />
+                </button>
+                <button className={`p-2 rounded-lg text-xs transition-colors ${theme === 'dark' ? 'text-white/20 hover:text-white' : 'text-gray-300 hover:text-black'}`} title="Not helpful">
+                  <ThumbsDown size={13} />
+                </button>
+                {i === messagesLength - 1 && (
+                  <button onClick={() => {
+                    setInputText(msg.text);
+                  }} className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white' : 'bg-black text-white hover:bg-gray-800'}`} title="Regenerate">
+                    <RefreshCw size={13} /> <span>Retry</span>
+                  </button>
+                )}
+                {msg.text.length > 200 && (
+                  <button onClick={() => {
+                    if (!user) { setModals((prev: any) => ({...prev, signIn: true})); return; }
+                    if (user.role !== 'admin' && user.plan === 'free') {
+                      setModals((prev: any) => ({ ...prev, upgradePro: true }));
+                      return;
+                    }
+                    let content = msg.text;
+                    let lang = 'python';
+                    const codeMatch = content.match(/```([a-z0-9#\-\+]+)?\n([\s\S]*?)```/i);
+                    if (codeMatch && codeMatch.length > 2) {
+                      lang = (codeMatch[1] || 'python').toLowerCase();
+                      const supportedLangs = ['html', 'javascript', 'typescript', 'python', 'java', 'csharp', 'php', 'ruby', 'go', 'swift', 'kotlin', 'dart', 'elixir', 'erlang', 'c', 'cpp', 'rust', 'zig', 'nim', 'd', 'ada', 'assembly', 'r', 'julia', 'sql', 'prolog', 'lisp', 'haskell', 'clojure', 'scala', 'ocaml', 'fsharp', 'bash', 'basic', 'cobol', 'crystal', 'fortran', 'groovy', 'lua', 'pascal', 'perl', 'brainfuck'];
+                      if (!supportedLangs.includes(lang)) {
+                        if (lang === 'js' || lang === 'jsx') lang = 'javascript';
+                        else if (lang === 'ts' || lang === 'tsx') lang = 'typescript';
+                        else if (lang === 'py') lang = 'python';
+                        else if (lang === 'c++') lang = 'cpp';
+                        else if (lang === 'c#') lang = 'csharp';
+                        else if (lang === 'sh') lang = 'bash';
+                        else lang = 'python';
+                      }
+                      content = content.match(/```[\s\S]*?```/g)?.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n') || content;
+                    } else {
+                      const codeMatchGeneral = content.match(/```[\s\S]*?```/g);
+                      if (codeMatchGeneral) content = codeMatchGeneral.map(block => block.replace(/```[a-z0-9#\-\+]*\n/i, '').replace(/```$/, '')).join('\n\n');
+                    }
+                    setCanvasLanguage(lang);
+                    setCanvasContent(content);
+                    setCanvasActiveProjectId(null);
+                    setView('ide');
+                  }} className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-[#00ff9d]' : 'bg-black text-white hover:bg-gray-800'}`} title="Open in Sandbox">
+                    <Play size={13} /> <span>Preview</span>
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
-          <div className="relative">
-            {/* User message is already rendered above */}
-            {/* User Message Actions */}
-            <div className="absolute -bottom-10 right-0 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 mt-2">
-              <button onClick={() => setInputText(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Edit">
-                <Edit2 size={14} />
-              </button>
-              <button onClick={() => copyToClipboard(msg.text)} className={`p-1.5 rounded-lg text-xs flex items-center gap-1 ${theme === 'dark' ? 'hover:bg-[#333] text-[#888] hover:text-white' : 'hover:bg-[#ddd] text-[#666] hover:text-black'}`} title="Copy">
-                <Copy size={14} />
-              </button>
+          ) : (
+            <div className="relative">
+              {/* User Message Actions */}
+              <div className="absolute -bottom-10 right-0 flex items-center gap-2 pt-2">
+                <button 
+                  onClick={() => handleEdit ? handleEdit(i) : setInputText(msg.text)} 
+                  className={`px-3 py-1.5 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} 
+                  title="Edit Message"
+                >
+                  <Edit2 size={12} /> <span>Edit</span>
+                </button>
+                <button 
+                  onClick={() => copyToClipboard(msg.text)} 
+                  className={`px-3 py-1.5 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} 
+                  title="Copy"
+                >
+                  <Copy size={12} /> <span>Copy</span>
+                </button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
     </motion.div>
   );
 });
+
+export const ChatMessage = React.memo(ChatMessageComponent);

@@ -198,10 +198,36 @@ export const getGeminiCompatibleMimeType = (mimeType: string): string => {
   if (supportedMedia.includes(mimeType)) return mimeType;
   
   // Broad fallback for text-based types Gemini might be picky about
-  if (mimeType.startsWith('text/') || mimeType.includes('xml') || mimeType.includes('json') || mimeType.includes('javascript') || mimeType.includes('typescript')) {
+  if (
+    mimeType.startsWith('text/') || 
+    mimeType.includes('xml') || 
+    mimeType.includes('json') || 
+    mimeType.includes('javascript') || 
+    mimeType.includes('typescript') ||
+    mimeType.includes('markdown') ||
+    mimeType.includes('yaml') ||
+    mimeType.includes('csv')
+  ) {
+    return 'text/plain';
+  }
+
+  // Common programming languages and config formats
+  const commonExtensions = ['.py', '.java', '.c', '.cpp', '.h', '.cs', '.go', '.rs', '.php', '.rb', '.sh', '.sql', '.ini', '.env', '.sln', '.csproj', '.ts', '.tsx', '.jsx', '.css', '.scss', '.less', '.html', '.xml', '.json', '.yaml', '.yml', '.md', '.txt', '.log'];
+  if (commonExtensions.some(ext => mimeType.includes(ext))) {
     return 'text/plain';
   }
 
   // Default to text/plain if we can't be sure, as it's the safest non-media type
   return 'text/plain';
+};
+
+/**
+ * Checks if a buffer represents a text file by looking for null bytes in the first 8KB.
+ */
+export const isTextFile = (buffer: ArrayBuffer): boolean => {
+  const uint8 = new Uint8Array(buffer.slice(0, 8192));
+  for (let i = 0; i < uint8.length; i++) {
+    if (uint8[i] === 0) return false;
+  }
+  return true;
 };

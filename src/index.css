@@ -54,6 +54,37 @@
     overflow-x: auto !important;
     border-radius: 0.75rem !important;
   }
+
+  .neural-border {
+    @apply border border-white/5 dark:border-white/5;
+    background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%);
+  }
+
+  .neural-glow {
+    box-shadow: 0 0 20px rgba(0, 255, 157, 0.05);
+  }
+
+  .neural-bg {
+    background-image: radial-gradient(circle at 50% 50%, rgba(0, 255, 157, 0.03) 0%, transparent 70%);
+  }
+
+  .neural-pattern {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  @keyframes pulse-subtle {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.8; transform: scale(0.98); }
+  }
+
+  .animate-pulse-subtle {
+    animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  .glass-header {
+    @apply backdrop-blur-3xl bg-black/60 border-b border-white/5;
+  }
 }
 
 /* Fix for mobile keyboard pushing up content */

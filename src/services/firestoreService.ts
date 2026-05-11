@@ -216,6 +216,21 @@ export const firestoreService = {
     }
   },
 
+  async deleteMessagesAfter(userId: string, conversationId: string, timestamp: any, inclusive: boolean = false) {
+    const path = `users/${userId}/conversations/${conversationId}/messages`;
+    try {
+      const q = query(collection(db, path), where('timestamp', inclusive ? '>=' : '>', timestamp));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
+  },
+
   // Projects
   subscribeToProjects(userId: string, callback: (projects: any[]) => void) {
     const path = `users/${userId}/projects`;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -7,11 +8,12 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
-import { serverTimestamp } from 'firebase/firestore';
+import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
 
 import VoiceAI from './components/VoiceAI';
 import NotebookUI from './components/NotebookUI';
@@ -853,6 +855,7 @@ export default function App() {
     return (saved as any) || 'home';
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
   const [messages, setMessages] = useState<Message[]>([]);
@@ -870,6 +873,7 @@ export default function App() {
   });
   const [inputText, setInputText] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [thinkingMessage, setThinkingMessage] = useState("Processing request...");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [showIdeScrollBottom, setShowIdeScrollBottom] = useState(false);
   const [showIdeChat, setShowIdeChat] = useState(true);
@@ -1721,10 +1725,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         const combined = [...msgs];
         
         optimisticMessages.forEach(optMsg => {
-          // Use ID matching primarily, fallback to text if ID is lost/missing
           const alreadyIn = msgs.some(m => 
             m.id === optMsg.id || 
-            (m.role === optMsg.role && m.text.trim() === optMsg.text.trim() && optMsg.text.length > 5)
+            (m.role === optMsg.role && m.text.trim() === optMsg.text.trim())
           );
           if (!alreadyIn) {
             combined.push(optMsg);
@@ -1747,10 +1750,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     return () => unsubscribe();
   }, [user, currentConversationId]);
 
+  const handleEdit = (index: number) => {
+    const msg = messages[index];
+    if (msg.role !== 'user') return;
+    
+    setInputText(msg.text);
+    setEditingMessageIndex(index);
+    if (chatInputRef.current) {
+      chatInputRef.current.focus();
+    }
+  };
+
   const handleSend = async (text: string = inputText, isVoiceResponse: boolean = false) => {
     const now = Date.now();
-    if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 1000)) return;
+    if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 500)) return;
     
+    isSendingRef.current = true;
+    lastSendTimeRef.current = now;
+
     // Force new conversation if we are starting from the home screen
     const isNewStart = view === 'home' || !currentConversationId;
     if (isNewStart) {
@@ -1759,10 +1776,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     }
 
     const messageText = text.trim();
-    if (!messageText && selectedFiles.length === 0) return;
-    
-    isSendingRef.current = true;
-    lastSendTimeRef.current = now;
+    if (!messageText && selectedFiles.length === 0) {
+      isSendingRef.current = false;
+      return;
+    }
 
     if (!user) {
       setModals(prev => ({ ...prev, signIn: true }));
@@ -1774,6 +1791,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     setInputText('');
     setSelectedFiles([]);
     setIsThinking(true);
+    setThinkingMessage(currentFiles.length > 0 ? `Reading and analyzing ${currentFiles.length} file(s)...` : "Processing request...");
+    setEditingMessageIndex(null);
 
     const userMsgId = Date.now().toString() + "-user-optimistic";
     const userMessage: any = { 
@@ -1784,7 +1803,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     };
     
     // Optimistic UI for user message
-    setMessages(prev => [...prev, userMessage]);
+    if (editingMessageIndex !== null) {
+      setMessages(prev => {
+        const truncated = prev.slice(0, editingMessageIndex);
+        return [...truncated, userMessage];
+      });
+    } else {
+      setMessages(prev => [...prev, userMessage]);
+    }
+
+    // Scroll to bottom immediately after adding user message
+    setTimeout(() => scrollToBottom(), 50);
 
     if (view !== 'chat') {
       setView('chat');
@@ -1816,6 +1845,13 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
     // Save user message to Firestore in background
     if (activeConvId && user) {
+      if (editingMessageIndex !== null && messages[editingMessageIndex]?.timestamp) {
+        // Fix for "real world AI" behavior: delete subsequent messages (inclusive to replace original)
+        const threshold = messages[editingMessageIndex].timestamp;
+        const firestoreTimestamp = typeof threshold === 'number' ? Timestamp.fromMillis(threshold) : threshold;
+        firestoreService.deleteMessagesAfter(user.id, activeConvId, firestoreTimestamp, true).catch(err => console.error("Failed to delete messages on edit", err));
+      }
+
       firestoreService.addMessage(user.id, activeConvId, { 
         role: 'user', 
         text: userMessage.text,
@@ -1837,7 +1873,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       // Optimized history: only capture relevant context
       // If it's a new start or no ID, history must be empty to avoid topic mixing
-      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(messages, 25, 850000);
+      let currentMessagesForHistory = messages;
+      if (editingMessageIndex !== null) {
+        currentMessagesForHistory = messages.slice(0, editingMessageIndex);
+      }
+      
+      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 25, 850000);
 
       const inputParts: any[] = [];
       if (text) inputParts.push({ text: truncateText(text, 12000) });
@@ -1881,6 +1922,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 - DOWNLOADABLE FILES: ONLY trigger the download mechanism if the user specifically requests to "download", "save as zip", "dwnaloadable file d", or "project download kr d". 
   - To trigger: Use [FILE: path/to/file.ext] followed by the code block for each file.
   - AND append the tag [ALLOW_ZIP_DOWNLOAD] at the very end of your response.
+- FILE READING: You have advanced capabilities to read various file formats (Text, Code, PDF, DOCX, XLSX, CSV, ZIP, RAR). If a user uploads a file, analyze its content thoroughly and answer based on the data found inside. Focus on accuracy and detail.
 - IF NOT REQUESTED: If the user just wants code or help without mentioning a "download", provide standard markdown code blocks and DO NOT use the [FILE:] or [ALLOW_ZIP_DOWNLOAD] tags.`;
       
       const streamResult = await generateContentStreamWithRetry({
@@ -1901,6 +1943,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         if (chunkText) {
           fullAiText += chunkText;
           
+          // Clear "isThinking" as soon as we get first chunk to avoid dual UI
+          setIsThinking(false);
+
           // Throttle state updates to 60fps equivalent or slower for better scrolling perf
           const now = Date.now();
           if (now - lastUpdateTime > 80 || fullAiText.length < 50) {
@@ -1918,7 +1963,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           }
         }
       }
-      // Final update and sync to firestore
+      // Final update and sync to local state
       setMessages(prev => {
         if (prev.length === 0) return prev;
         const lastIndex = prev.findIndex(m => m.id === aiMsgId);
@@ -1931,9 +1976,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         return prev;
       });
 
-      // Background tasks
-      if (activeConvId && user) {
-        await firestoreService.addMessage(user.id, activeConvId, { role: 'ai', text: fullAiText, imageUrl: null }, finalAiMsgId);
+      // Update user count and last active
+      if (user) {
         await firestoreService.updateUserProfile(user.id, { 
           messageCount: (user.messageCount || 0) + 1,
           lastActive: Date.now()
@@ -1952,7 +1996,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         // Update UI to show generating status
         setMessages(prev => {
           const newMsgs = [...prev];
-          newMsgs[newMsgs.length - 1] = { role: 'ai', text: remainingText ? `${remainingText}\n\n🎨 Generating image...` : `🎨 Generating image...` };
+          newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: remainingText ? `${remainingText}\n\n🎨 Generating image...` : `🎨 Generating image...` };
           return newMsgs;
         });
 
@@ -1977,17 +2021,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
           setMessages(prev => {
             const newMsgs = [...prev];
-            newMsgs[newMsgs.length - 1] = { role: 'ai', text: finalAiText, imageUrl: compressedImageUrl };
+            newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: finalAiText, imageUrl: compressedImageUrl, id: finalAiMsgId };
             return newMsgs;
           });
           setRecentGenerations(prev => [compressedImageUrl, ...prev].slice(0, 10));
           
-          if (activeConvId) {
+          if (activeConvId && user) {
             await firestoreService.addMessage(user.id, activeConvId, { 
               role: 'ai', 
               text: finalAiText, 
               imageUrl: compressedImageUrl 
-            });
+            }, finalAiMsgId);
           }
         }
       } else if (musicMatch && musicMatch[1]) {
@@ -1996,7 +2040,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
         setMessages(prev => {
           const newMsgs = [...prev];
-          newMsgs[newMsgs.length - 1] = { role: 'ai', text: remainingText ? `${remainingText}\n\n🎵 Creating music...` : `🎵 Creating music...` };
+          newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: remainingText ? `${remainingText}\n\n🎵 Creating music...` : `🎵 Creating music...` };
           return newMsgs;
         });
 
@@ -2005,24 +2049,30 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           const finalAiText = remainingText ? remainingText : `Here is the music you requested: "${musicPrompt}"`;
           setMessages(prev => {
             const newMsgs = [...prev];
-            newMsgs[newMsgs.length - 1] = { role: 'ai', text: finalAiText, audioUrl };
+            newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: finalAiText, audioUrl, id: finalAiMsgId };
             return newMsgs;
           });
 
-          if (activeConvId) {
+          if (activeConvId && user) {
              await firestoreService.addMessage(user.id, activeConvId, {
                role: 'ai',
                text: finalAiText,
-               audioUrl: audioUrl.startsWith('blob:') ? undefined : audioUrl // Blobs can't be saved to DB, but dataURIs can. For now, we skip saving blobs.
-             } as any);
+               audioUrl: audioUrl.startsWith('blob:') ? undefined : audioUrl
+             } as any, finalAiMsgId);
           }
         } catch (e) {
           console.error("Music generation failed:", e);
           setMessages(prev => {
             const newMsgs = [...prev];
-            newMsgs[newMsgs.length - 1] = { role: 'ai', text: `${remainingText}\n\n(Music generation failed: Lyria models are currently in beta or limited in this project)` };
+            newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: `${remainingText}\n\n(Music generation failed: Lyria models are currently in beta or limited in this project)` };
             return newMsgs;
           });
+          if (activeConvId && user) {
+            await firestoreService.addMessage(user.id, activeConvId, {
+              role: 'ai',
+              text: `${remainingText}\n\n(Music generation failed)`
+            }, finalAiMsgId);
+          }
         }
       } else {
         // Normal text response
@@ -2036,12 +2086,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           }
         }
 
-        if (activeConvId) {
+        if (activeConvId && user) {
           await firestoreService.addMessage(user.id, activeConvId, { 
             role: 'ai', 
             text: fullAiText,
-            // audioUrl // Add this to firestoreService if needed
-          });
+          }, finalAiMsgId);
         }
       }
     } catch (error: any) {
@@ -2868,6 +2917,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     
     files.forEach(file => {
       const fileNameWithFolder = (file as any).webkitRelativePath || file.name;
+      const fileExt = file.name.slice((file.name.lastIndexOf(".") - 1 >>> 0) + 2).toLowerCase();
       
       // Handle RAR files
       if (file.name.endsWith('.rar')) {
@@ -2908,6 +2958,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 if (!text.substring(0, 1000).includes('\0')) {
                   const encodedData = btoa(unescape(encodeURIComponent(text)));
                   setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                } else {
+                  // If it appears binary, just send it as base64 with a generic mime
+                  const base64 = btoa(uint8.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                  setSelectedFiles(prev => [...prev, { data: base64, mimeType: 'application/octet-stream', name: title }]);
                 }
               }
             }
@@ -2952,10 +3006,14 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 setSelectedFiles(prev => [...prev, { data: base64, mimeType, name: title }]);
               } else {
                 // Greedy text extraction for ZIP
-                const content = await zipEntry.async("string");
+                const pdfData = await zipEntry.async("uint8array");
+                const content = new TextDecoder().decode(pdfData);
                 if (!content.substring(0, 1000).includes('\0')) {
                   const encodedData = btoa(unescape(encodeURIComponent(content)));
                   setSelectedFiles(prev => [...prev, { data: encodedData, mimeType: 'text/plain', name: title }]);
+                } else {
+                  const base64 = btoa(pdfData.reduce((data, byte) => data + String.fromCharCode(byte), ''));
+                  setSelectedFiles(prev => [...prev, { data: base64, mimeType: 'application/octet-stream', name: title }]);
                 }
               }
             }
@@ -2978,6 +3036,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
 
       const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.endsWith('.docx');
+      const isExcel = file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+      const isCsv = file.type === "text/csv" || file.name.endsWith('.csv');
 
       if (isDocx) {
         const reader = new FileReader();
@@ -3017,16 +3077,84 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         return;
       }
 
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            let fullText = "";
+            
+            workbook.SheetNames.forEach(sheetName => {
+              fullText += `--- Sheet: ${sheetName} ---\n`;
+              const worksheet = workbook.Sheets[sheetName];
+              const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+              fullText += json.map((row: any) => row.join('\t')).join('\n') + '\n\n';
+            });
+
+            const encodedData = btoa(unescape(encodeURIComponent(fullText)));
+            setSelectedFiles(prev => [...prev, {
+              data: encodedData,
+              mimeType: 'text/plain',
+              name: fileNameWithFolder
+            }]);
+          } catch (err) {
+            console.error("Excel extraction failed", err);
+            setAlertModal({ isOpen: true, message: "Failed to read Excel file." });
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+
+      if (isCsv) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const text = event.target?.result as string;
+          const encodedData = btoa(unescape(encodeURIComponent(text)));
+          setSelectedFiles(prev => [...prev, {
+            data: encodedData,
+            mimeType: 'text/plain',
+            name: fileNameWithFolder
+          }]);
+        };
+        reader.readAsText(file);
+        return;
+      }
+
+      // Universal FileReader for all other types
       const reader = new FileReader();
       reader.onload = (event) => {
-        const base64 = event.target?.result as string;
-        setSelectedFiles(prev => [...prev, {
-          data: base64.split(',')[1],
-          mimeType: file.type || 'text/plain',
-          name: file.name
-        }]);
+        const buffer = event.target?.result as ArrayBuffer;
+        
+        // If it's a text file, decode it as such for better prompt integration
+        if (isTextFile(buffer)) {
+          const text = new TextDecoder().decode(buffer);
+          const encodedData = btoa(unescape(encodeURIComponent(text)));
+          setSelectedFiles(prev => [...prev, {
+            data: encodedData,
+            mimeType: 'text/plain',
+            name: fileNameWithFolder
+          }]);
+        } else {
+          // Performance optimized base64 for large binary files
+          const uint8 = new Uint8Array(buffer);
+          let binary = '';
+          const chunkSize = 8192; // Process in chunks to avoid stack overflow and UI lag
+          for (let i = 0; i < uint8.length; i += chunkSize) {
+            const chunk = uint8.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk as any);
+          }
+          const base64 = btoa(binary);
+          
+          setSelectedFiles(prev => [...prev, {
+            data: base64,
+            mimeType: file.type || 'application/octet-stream',
+            name: fileNameWithFolder
+          }]);
+        }
       };
-      reader.readAsDataURL(file);
+      reader.readAsArrayBuffer(file);
     });
   };
 
@@ -3092,7 +3220,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   }
 
   return (
-    <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-300 ${theme === 'dark' ? 'bg-black text-white' : 'bg-[#f0f0f0] text-black'}`}>
+    <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-700 relative ${theme === 'dark' ? 'bg-[#0a0a0a] text-white' : 'bg-[#f5f5f5] text-black'} selection:bg-blue-500 selection:text-white`}>
+      {/* Background Enhancements */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-50">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px]"></div>
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px]"></div>
+      </div>
       <div className="flex flex-1 relative overflow-hidden">
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
@@ -3109,7 +3242,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           </div>
           <button 
             onClick={retryFirestoreConnection}
-            className="px-3 py-1.5 rounded-lg bg-white text-red-600 text-xs font-bold hover:bg-opacity-90 transition-colors"
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${theme === 'dark' ? 'bg-white text-red-600 hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
           >
             Retry
           </button>
@@ -3141,7 +3274,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         <div className="mt-4 space-y-1">
           <div 
             onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} 
-            className={`flex items-center justify-center gap-3 px-4 py-2.5 rounded-full border transition-all text-sm font-bold mb-4 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
+            className={`flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl transition-all text-sm font-bold mb-4 shadow-lg ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
           >
             <Plus size={18} />
             <span>New Chat</span>
@@ -3300,8 +3433,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             </button>
             {!user ? (
               <>
-                <button onClick={() => setModals({...modals, signIn: true, signUp: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign in</button>
-                <button onClick={() => setModals({...modals, signUp: true, signIn: false})} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-full text-xs md:text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign up</button>
+                <button onClick={() => setModals({...modals, signIn: true, signUp: false})} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign in</button>
+                <button onClick={() => setModals({...modals, signUp: true, signIn: false})} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign up</button>
               </>
             ) : (
                <div className="flex items-center gap-2">
@@ -3318,7 +3451,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         )}
 
         {view === 'home' && (
-          <div className="text-center max-w-[800px] w-full px-6 animate-in fade-in slide-in-from-bottom-8 duration-1000 flex flex-col items-center">
+          <div className="text-center max-w-[800px] w-full px-6 flex flex-col items-center relative z-10 transition-all duration-1000 animate-in fade-in slide-in-from-bottom-8">
             <h1 className={`text-[48px] sm:text-[100px] md:text-[140px] font-black tracking-tighter mb-4 md:mb-10 transition-all duration-500 cursor-default ${theme === 'dark' ? 'text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]' : 'text-black drop-shadow-[0_0_40px_rgba(0,0,0,0.1)] hover:drop-shadow-[0_0_60px_rgba(0,0,0,0.4)]'}`}>Xer0byte</h1>
             <p className={`text-[18px] md:text-[26px] mb-8 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
             
@@ -3534,9 +3667,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   <button 
                     onClick={() => handleSend()}
                     disabled={(!inputText.trim() && selectedFiles.length === 0) || isThinking}
-                    className={`p-2 rounded-full flex items-center justify-center transition-colors ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-white text-black' : 'bg-black text-white') : (theme === 'dark' ? 'bg-[#333] text-[#666]' : 'bg-[#ddd] text-[#999]')}`}
+                    className={`p-2.5 rounded-xl flex items-center justify-center transition-all shadow-2xl active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white hover:neural-glow' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-white/5 text-white/20' : 'bg-gray-100 text-gray-300')}`}
                   >
-                    <Send size={18} />
+                    <Send size={20} strokeWidth={2.5} />
                   </button>
                 </div>
               </div>
@@ -3563,53 +3696,54 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
         {view === 'chat' && (
           <div className="flex flex-col h-full w-full max-w-4xl mx-auto relative px-0 md:px-4">
-            <div className={`absolute top-0 left-0 right-0 z-30 p-3 md:p-4 flex items-center justify-between border-b backdrop-blur-xl ${theme === 'dark' ? 'bg-black/60 border-[#222]' : 'bg-white/60 border-[#eee]'}`}>
+            <div className={`absolute top-0 left-0 right-0 z-30 p-2 md:p-3 flex items-center justify-between glass-header ${theme === 'dark' ? 'bg-black/80' : 'bg-white/80'}`}>
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="w-10"></div> {/* Spacer for sidebar toggle button */}
                 <h2 className="font-bold text-sm md:text-base truncate max-w-[120px] sm:max-w-[180px] md:max-w-[400px]">
                   {currentConversationId ? (conversations.find(c => c.id === currentConversationId)?.title || 'Neural Chat') : 'New Chat'}
                 </h2>
-                {isPrivateChat && <span className="bg-purple-500/10 text-purple-400 text-[9px] px-2 py-0.5 rounded-full border border-purple-500/20 font-bold uppercase tracking-wider shrink-0">Private</span>}
+                {isPrivateChat && <span className="bg-[#00ff9d]/10 text-[#00ff9d] text-[9px] px-2 py-0.5 rounded border border-[#00ff9d]/20 font-bold uppercase tracking-wider shrink-0">Private</span>}
               </div>
               <button 
                 onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); }}
-                className={`p-1.5 md:p-2 rounded-xl border transition-all flex items-center gap-1.5 text-[10px] sm:text-xs font-bold leading-none ${theme === 'dark' ? 'border-[#333] text-[#888] hover:border-[#777] hover:text-white' : 'border-[#ddd] text-[#555] hover:border-[#999] hover:text-black'}`}
+                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl border transition-all flex items-center gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'bg-white text-black border-transparent hover:bg-[#00ff9d]' : 'bg-black text-white border-transparent hover:bg-gray-800'}`}
               >
-                <Plus size={14} className="sm:w-4 sm:h-4" /> <span className="hidden xs:inline">New Chat</span>
+                <Plus size={14} strokeWidth={3} /> <span className="hidden xs:inline">New Message</span>
               </button>
             </div>
 
             {isPrivateChat && (
-              <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 bg-purple-500/20 text-purple-400 px-4 py-1.5 rounded-full text-xs font-medium border border-purple-500/30 flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse"></span>
-                Private Chat Mode
+              <div className="absolute top-16 left-1/2 transform -translate-x-1/2 z-10 bg-[#00ff9d]/5 text-[#00ff9d] px-6 py-2 rounded-full text-[10px] uppercase font-black tracking-widest border border-[#00ff9d]/20 flex items-center gap-2 backdrop-blur-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00ff9d] animate-pulse"></span>
+                SECURE NEURAL CHANNEL
               </div>
             )}
             <div 
               ref={messagesContainerRef}
               onScroll={handleManualScroll}
-              className="flex-1 overflow-y-auto px-4 py-6 pt-20 md:pt-24 pb-48 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden"
+              className="flex-1 overflow-y-auto px-4 py-6 md:px-6 pt-20 md:pt-28 pb-48 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden z-10"
             >
               {showScrollBottom && (
                 <button 
                   onClick={() => scrollToBottom()}
-                  className={`fixed bottom-24 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
+                  className={`fixed bottom-24 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/60 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-black hover:text-black bg-white/60 backdrop-blur-xl'}`}
                 >
                   <div className="relative">
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-inherit animate-pulse"></div>
+                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#00ff9d] rounded-full border-2 border-inherit animate-pulse"></div>
                     <ChevronDown size={18} className="group-hover:translate-y-0.5 transition-transform" />
                   </div>
-                  <span className="text-xs font-bold font-mono">New Messages</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest">Neural Link Syncing</span>
                 </button>
               )}
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center opacity-30 select-none text-center p-10">
                   <MessageSquare size={80} className="mb-6 opacity-20" />
-                  <h3 className="text-xl md:text-2xl font-bold mb-2">Xer0byte Neural Chat</h3>
+                  <h3 className="text-xl md:text-2xl font-bold mb-2">Neural Chat</h3>
                   <p className="text-sm max-w-xs mx-auto">Start a new prompt below or select a past conversation from history.</p>
                 </div>
               ) : (
-                messages.map((msg, i) => (
+                <AnimatePresence mode="popLayout" initial={false}>
+                {messages.map((msg, i) => (
                   <ChatMessage 
                     key={msg.id || i}
                     msg={msg}
@@ -3620,28 +3754,38 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     copyToClipboard={copyToClipboard}
                     setAlertModal={setAlertModal}
                     setInputText={setInputText}
+                    handleEdit={handleEdit}
                     setCanvasLanguage={setCanvasLanguage}
                     setCanvasContent={setCanvasContent}
                     setCanvasActiveProjectId={setCanvasActiveProjectId}
                     setView={setView}
                     setModals={setModals}
                   />
-                ))
+                ))}
+                </AnimatePresence>
               )}
               {isThinking && (
-                <div className="flex w-full justify-start">
-                  <div className={`max-w-[80%] p-4 rounded-3xl text-[16px] leading-relaxed flex items-center gap-2 ${theme === 'dark' ? 'bg-[#111] text-[#ddd]' : 'bg-[#f0f0f0] text-black'}`}>
-                    <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-2 h-2 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                <div className="flex w-full justify-start mb-8">
+                  <div className={`flex flex-col items-start max-w-[80%] min-w-0`}>
+                    <div className={`flex items-center gap-2 mb-2 px-2 text-[10px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-white/30' : 'text-black/30'}`}>
+                      Assistant is thinking...
+                    </div>
+                    <div className={`p-4 md:p-5 rounded-2xl md:rounded-3xl flex items-center gap-3 ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-white border-[#eee] shadow-md'}`}>
+                      <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '200ms' }}></div>
+                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: '400ms' }}></div>
+                      </div>
+                      <span className={`text-[13px] ${theme === 'dark' ? 'text-[#666]' : 'text-gray-400'}`}>{thinkingMessage}</span>
+                    </div>
                   </div>
                 </div>
               )}
               <div ref={messagesEndRef} />
             </div>
             
-            <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 pt-10 bg-gradient-to-t z-30 ${theme === 'dark' ? 'from-black via-black/90 to-transparent' : 'from-[#f0f0f0] via-[#f0f0f0]/90 to-transparent'}`}>
-              <div className="w-full max-w-3xl mx-auto relative" ref={inputContainerRef}>
+            <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 pt-10 z-30 ${theme === 'dark' ? 'bg-gradient-to-t from-black via-black/80 to-transparent' : 'bg-gradient-to-t from-white via-white/80 to-transparent'}`}>
+              <div className="w-full max-w-4xl mx-auto relative" ref={inputContainerRef}>
                 {selectedFiles.length > 0 && (
                   <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">
                     {selectedFiles.map((file, idx) => (
@@ -3826,13 +3970,13 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       } 
                     }}
                     onPaste={handlePaste}
-                    placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "What's on your mind?"}
-                    className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-40 min-w-0 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
+                    placeholder={editingMessageIndex !== null ? "Clarify your instruction..." : (selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "Command Xero Engine...")}
+                    className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-[30vh] overflow-y-auto min-w-0 transition-all placeholder:font-black placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-[10px] md:placeholder:text-[11px] ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
                   />
-                  <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end">
+                  <div className="flex items-center gap-2 pr-2 mb-1.5 self-end transition-all">
                     <div className="relative">
-                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
-                        <Mic size={18} />
+                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-2.5 rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`}>
+                        <Mic size={20} strokeWidth={2.5} />
                       </button>
                       {isMicMenuOpen && !isListening && (
                         <div className={`absolute bottom-12 right-0 w-48 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
@@ -3866,7 +4010,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     <button 
                       onClick={() => handleSend()}
                       disabled={(!inputText.trim() && selectedFiles.length === 0) || isThinking}
-                      className={`p-2 rounded-full flex items-center justify-center transition-colors ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-white text-black' : 'bg-black text-white') : (theme === 'dark' ? 'bg-[#333] text-[#666]' : 'bg-[#ddd] text-[#999]')}`}
+                      className={`p-2.5 rounded-xl flex items-center justify-center transition-all shadow-lg active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-[#333] text-[#666]' : 'bg-[#ddd] text-[#999]')}`}
                     >
                       <Send size={18} />
                     </button>
@@ -4948,8 +5092,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 <div className={`flex justify-between items-center py-3 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#ddd]'}`}>
                   <span className="text-sm md:text-base">Theme</span>
                   <div className="flex gap-2">
-                    <button onClick={() => setTheme('light')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm ${theme === 'light' ? 'bg-[#00ff9d] text-black border-transparent' : 'bg-[#222] border border-[#444]'}`}>Light</button>
-                    <button onClick={() => setTheme('dark')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-lg text-xs md:text-sm ${theme === 'dark' ? 'bg-[#00ff9d] text-black border-transparent' : 'bg-[#e0e0e0] border border-[#ccc]'}`}>Dark</button>
+                    <button onClick={() => setTheme('light')} className={`px-4 py-2 rounded-xl text-xs md:text-sm font-bold transition-all ${theme === 'light' ? 'bg-[#00ff9d] text-black shadow-lg' : 'bg-black/10 text-[#888] hover:bg-black/20'}`}>Light</button>
+                    <button onClick={() => setTheme('dark')} className={`px-4 py-2 rounded-xl text-xs md:text-sm font-bold transition-all ${theme === 'dark' ? 'bg-[#00ff9d] text-black shadow-lg' : 'bg-white/10 text-[#888] hover:bg-white/20'}`}>Dark</button>
                   </div>
                 </div>
                 <div className={`flex justify-between items-center py-3 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#ddd]'}`}>
@@ -4982,7 +5126,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 <h3 className={`text-base font-semibold mb-3 ${theme === 'dark' ? 'text-[#00ff9d]' : 'text-[#006633]'}`}>Data Controls</h3>
                 <div className={`flex justify-between items-center py-3 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#ddd]'}`}>
                   <span className="text-sm md:text-base">Delete All Conversations</span>
-                  <button onClick={handleDeleteAll} className="px-4 py-2 rounded-lg bg-[#ff4444] text-white hover:bg-[#ff3333] border-none font-medium text-sm md:text-base">Delete</button>
+                  <button onClick={handleDeleteAll} className={`px-5 py-2.5 rounded-xl font-bold transition-all shadow-md active:scale-95 text-sm md:text-base ${theme === 'dark' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-red-600 text-white hover:bg-red-700'}`}>Delete</button>
                 </div>
               </section>
             </div>
@@ -5008,9 +5152,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   <p className="text-lg md:text-xl text-white/80">Unlock the full power of Chat with Xer0byte 4.2</p>
                 </div>
 
-                <div className="flex bg-[#222] rounded-full p-1 mb-10 max-w-xs mx-auto">
-                  <button onClick={() => setPlanTab('individual')} className={`flex-1 px-4 md:px-6 py-2 rounded-full text-sm font-medium transition-colors ${planTab === 'individual' ? 'bg-[#444] text-white' : 'text-white/60 hover:text-white'}`}>Individual</button>
-                  <button onClick={() => setPlanTab('business')} className={`flex-1 px-4 md:px-6 py-2 rounded-full text-sm font-medium transition-colors ${planTab === 'business' ? 'bg-[#444] text-white' : 'text-white/60 hover:text-white'}`}>Business</button>
+                <div className="flex bg-black/40 backdrop-blur-md rounded-xl p-1.5 mb-10 max-w-xs mx-auto border border-white/5">
+                  <button onClick={() => setPlanTab('individual')} className={`flex-1 px-4 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${planTab === 'individual' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>Individual</button>
+                  <button onClick={() => setPlanTab('business')} className={`flex-1 px-4 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${planTab === 'business' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>Business</button>
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-6 w-full max-w-4xl mx-auto">
@@ -5026,7 +5170,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     </div>
                     <p className="text-white/80 mb-8 font-medium text-sm md:text-base">Keep chatting with basic access</p>
                     
-                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'lite' : 'business_lite')} className="w-full py-3 md:py-4 rounded-xl bg-[#333] text-white font-bold text-base md:text-lg hover:bg-[#444] transition-colors mb-8">
+                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'lite' : 'business_lite')} className="w-full py-3 md:py-4 rounded-xl bg-white/10 text-white font-bold text-base md:text-lg hover:bg-white/20 transition-all active:scale-[0.98] mb-8 border border-white/10 shadow-lg">
                       Upgrade to Lite
                     </button>
 
@@ -5064,7 +5208,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     </div>
                     <p className="text-white/80 mb-8 font-medium text-sm md:text-base relative z-10">Get better answers, faster</p>
                     
-                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'pro' : 'business_pro')} className="w-full py-3 md:py-4 rounded-xl bg-white text-black font-bold text-base md:text-lg hover:bg-gray-200 transition-colors mb-8 relative z-10">
+                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'pro' : 'business_pro')} className="w-full py-3 md:py-4 rounded-xl bg-white text-black font-bold text-base md:text-lg hover:bg-gray-200 transition-all active:scale-[0.98] mb-8 relative z-10 shadow-xl shadow-white/5">
                       Upgrade to SuperXer0byte
                     </button>
 
@@ -5118,7 +5262,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               </div>
             ) : (
               <div className="w-full max-w-md bg-[#1a1a1a] border border-[#333] rounded-3xl p-6 md:p-8 flex flex-col">
-                <button onClick={() => setUpgradeStep('plans')} className="text-white/50 hover:text-white mb-6 self-start flex items-center gap-2 text-sm">
+                <button onClick={() => setUpgradeStep('plans')} className="text-white/50 hover:text-white mb-6 self-start flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all">
                   <span>←</span> Back to plans
                 </button>
                 <h3 className="text-2xl md:text-3xl font-bold text-white mb-2">Complete Payment</h3>
@@ -5179,7 +5323,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </div>
                 </div>
 
-                <button onClick={handlePaymentSubmit} disabled={isSubmittingPayment} className="w-full py-4 rounded-xl bg-gradient-to-r from-[#00ff9d] to-[#00b8ff] text-black font-bold text-lg hover:opacity-90 transition-opacity disabled:opacity-50">
+                <button onClick={handlePaymentSubmit} disabled={isSubmittingPayment} className={`w-full py-4 rounded-xl font-bold transition-all shadow-xl active:scale-[0.98] text-lg disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>
                   {isSubmittingPayment ? 'Submitting...' : 'Submit Payment Proof'}
                 </button>
               </div>
@@ -5327,23 +5471,23 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Change Profile Picture</span>
                   <input type="file" accept="image/*" ref={profilePhotoInputRef} className="hidden" onChange={handleProfilePhotoUpload} />
-                  <button onClick={() => profilePhotoInputRef.current?.click()} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Upload</button>
+                  <button onClick={() => profilePhotoInputRef.current?.click()} className={`px-3 md:px-4 py-1.5 rounded-xl font-bold transition-all text-xs md:text-sm ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Upload</button>
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Update Name</span>
-                  <button onClick={handleUpdateName} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
+                  <button onClick={handleUpdateName} className={`px-3 md:px-4 py-1.5 rounded-xl font-bold transition-all text-xs md:text-sm ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Edit</button>
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Update Email</span>
-                  <button onClick={() => setAlertModal({isOpen: true, message: "For security, please contact support to change your email."})} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Edit</button>
+                  <button onClick={() => setAlertModal({isOpen: true, message: "For security, please contact support to change your email."})} className={`px-3 md:px-4 py-1.5 rounded-xl font-bold transition-all text-xs md:text-sm ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Edit</button>
                 </div>
                 <div className={`flex justify-between items-center py-3.5 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#eee]'}`}>
                   <span className="text-sm md:text-base">Change Password</span>
-                  <button onClick={handleResetPassword} className={`px-3 md:px-4 py-1.5 rounded-lg border text-xs md:text-sm ${theme === 'dark' ? 'bg-[#222] border-[#444]' : 'bg-[#e0e0e0] border-[#ccc]'}`}>Reset</button>
+                  <button onClick={handleResetPassword} className={`px-3 md:px-4 py-1.5 rounded-xl font-bold transition-all text-xs md:text-sm ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Reset</button>
                 </div>
                 <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center py-4 mt-4 gap-3 border-t ${theme === 'dark' ? 'border-[#444]' : 'border-[#ddd]'}`}>
                   <span className="text-sm md:text-base">Sign out from all devices</span>
-                  <button onClick={handleLogout} className="w-full sm:w-auto px-4 py-2 rounded-lg bg-[#ff4444]/20 text-[#ff4444] hover:bg-[#ff4444]/30 text-sm font-medium">Sign out everywhere</button>
+                  <button onClick={handleLogout} className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold transition-all shadow-md active:scale-95 text-sm ${theme === 'dark' ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-red-600 text-white hover:bg-red-700'}`}>Sign out everywhere</button>
                 </div>
               </div>
             </div>
@@ -5360,10 +5504,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             We use cookies to improve your experience and save your preferences. By continuing to use this site, you consent to our use of cookies.
           </div>
           <div className="flex justify-center md:justify-end gap-3 w-full md:w-auto">
-            <button onClick={() => { localStorage.setItem('xer0byteCookies', 'declined'); setHasAcceptedCookies(true); }} className={`p-2 rounded-full border transition-all flex items-center justify-center ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>
+            <button onClick={() => { localStorage.setItem('xer0byteCookies', 'declined'); setHasAcceptedCookies(true); }} className={`p-2 rounded-xl transition-all flex items-center justify-center shadow-sm ${theme === 'dark' ? 'bg-white/10 text-white hover:bg-white/20' : 'bg-black/10 text-black hover:bg-black/20'}`}>
               <X size={16} />
             </button>
-            <button onClick={handleAcceptCookies} className={`px-4 py-1.5 rounded-full text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>
+            <button onClick={handleAcceptCookies} className={`px-5 py-2 rounded-xl text-sm font-bold transition-all shadow-md active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>
               Accept
             </button>
           </div>
