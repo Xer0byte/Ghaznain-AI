@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -3318,32 +3318,80 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     });
   };
 
+  const [viewPasteModal, setViewPasteModal] = useState<{isOpen: boolean, content: string, title: string}>({
+    isOpen: false,
+    content: '',
+    title: ''
+  });
+
+  const handleViewPaste = (file: {data: string, name: string}) => {
+    try {
+      const content = decodeURIComponent(escape(atob(file.data)));
+      setViewPasteModal({
+        isOpen: true,
+        content,
+        title: file.name
+      });
+    } catch (e) {
+      console.error("Failed to decode paste", e);
+      // Fallback for non-latin characters if above fails
+      try {
+        const content = atob(file.data);
+        setViewPasteModal({
+          isOpen: true,
+          content,
+          title: file.name
+        });
+      } catch (e2) {
+        setAlertModal({ isOpen: true, message: "Failed to read the content of this block." });
+      }
+    }
+  };
+
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const items = e.clipboardData?.items;
-    if (!items) return;
-    
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1 || items[i].type.indexOf('application/pdf') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const dataUrl = event.target?.result as string;
-            
-            if (file.type.startsWith('image/')) {
-              setSessionAssets(prev => ({ ...prev, [file.name || `pasted_${Date.now()}.png`]: dataUrl }));
-            }
+    const text = e.clipboardData?.getData('text');
 
-            setSelectedFiles(prev => [...prev, {
-              data: dataUrl.split(',')[1],
-              mimeType: file.type || 'application/octet-stream',
-              name: file.name || `pasted_file_${Date.now()}`
-            }]);
-          };
-          reader.readAsDataURL(file);
-          e.preventDefault(); // Prevent pasting the filename as text
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1 || items[i].type.indexOf('application/pdf') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const dataUrl = event.target?.result as string;
+              
+              if (file.type.startsWith('image/')) {
+                setSessionAssets(prev => ({ ...prev, [file.name || `pasted_${Date.now()}.png`]: dataUrl }));
+              }
+
+              setSelectedFiles(prev => [...prev, {
+                data: dataUrl.split(',')[1],
+                mimeType: file.type || 'application/octet-stream',
+                name: file.name || `pasted_file_${Date.now()}`
+              }]);
+            };
+            reader.readAsDataURL(file);
+            e.preventDefault(); 
+          }
+          return; // Skip text handling if we found a file
         }
       }
+    }
+
+    // Handle large text blocks or multi-line pastes specifically
+    if (text && (text.includes('\n') || text.length > 300)) {
+       e.preventDefault();
+       const title = `Copied Text (${text.substring(0, 20).trim()}...)`;
+       const base64 = btoa(unescape(encodeURIComponent(text)));
+       
+       setSelectedFiles(prev => [...prev, {
+         data: base64,
+         mimeType: 'text/plain',
+         name: title
+       }]);
+
+       setAlertModal({ isOpen: true, message: "Text captured as a formatted block." });
     }
   };
 
@@ -3619,9 +3667,23 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               {selectedFiles.length > 0 && (
                 <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">
                   {selectedFiles.map((file, idx) => (
-                    <div key={idx} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                    <div 
+                      key={idx} 
+                      onClick={() => {
+                        if (file.mimeType === 'text/plain') {
+                          handleViewPaste(file);
+                        }
+                      }}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border cursor-pointer group/file ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white hover:border-blue-500/50' : 'bg-white border-[#ddd] text-black hover:border-blue-500/50'}`}
+                    >
                       <span className="truncate max-w-[150px]">{file.name}</span>
-                      <button onClick={() => setSelectedFiles(prev => prev.filter((_, i) => i !== idx))} className="hover:text-red-500">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+                        }} 
+                        className="opacity-40 hover:opacity-100 hover:text-red-500 transition-all p-0.5"
+                      >
                         <X size={14} />
                       </button>
                     </div>
@@ -3949,9 +4011,23 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 {selectedFiles.length > 0 && (
                   <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">
                     {selectedFiles.map((file, idx) => (
-                      <div key={idx} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                      <div 
+                        key={idx} 
+                        onClick={() => {
+                          if (file.mimeType === 'text/plain') {
+                            handleViewPaste(file);
+                          }
+                        }}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm border cursor-pointer group/file shrink-0 ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white hover:border-blue-500/50' : 'bg-white border-[#ddd] text-black hover:border-blue-500/50'}`}
+                      >
                         <span className="truncate max-w-[150px]">{file.name}</span>
-                        <button onClick={() => setSelectedFiles(prev => prev.filter((_, i) => i !== idx))} className="hover:text-red-500">
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+                          }} 
+                          className="opacity-40 hover:opacity-100 hover:text-red-500 transition-all p-0.5"
+                        >
                           <X size={14} />
                         </button>
                       </div>
@@ -5488,6 +5564,44 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* View Paste Modal */}
+      {viewPasteModal.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in" onClick={(e) => { if(e.target === e.currentTarget) setViewPasteModal({ ...viewPasteModal, isOpen: false }) }}>
+          <div className={`w-full max-w-4xl max-h-[85vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+            <div className={`flex justify-between items-center p-5 border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-500">
+                  <Clipboard size={20} />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold truncate max-w-[300px] md:max-w-md">{viewPasteModal.title}</h2>
+                  <p className="text-[10px] uppercase font-black tracking-widest opacity-40">Neural Data Stream</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                 <button 
+                  onClick={() => {
+                    copyToClipboard(viewPasteModal.content);
+                    setAlertModal({ isOpen: true, message: "Copied to clipboard!" });
+                  }} 
+                  className={`p-2.5 rounded-xl border transition-all flex items-center gap-2 text-xs font-bold ${theme === 'dark' ? 'bg-[#222] border-[#333] hover:bg-[#333] hover:text-[#00ff9d]' : 'bg-[#f5f5f5] border-[#ddd] hover:bg-[#eee] hover:text-blue-600'}`}
+                >
+                  <Copy size={16} /> <span className="hidden sm:inline">Copy</span>
+                </button>
+                <button onClick={() => setViewPasteModal({ ...viewPasteModal, isOpen: false })} className="hover:opacity-70 p-2 ml-2 transition-transform hover:rotate-90 duration-300"><X size={24} /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 md:p-10 font-mono text-sm md:text-base leading-relaxed whitespace-pre-wrap select-text selection:bg-blue-500/30 custom-scrollbar">
+              {viewPasteModal.content}
+            </div>
+            <div className={`p-5 border-t ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'} flex justify-between items-center bg-inherit`}>
+               <div className="text-[10px] opacity-30 font-mono">Size: {new Blob([viewPasteModal.content]).size} bytes | {viewPasteModal.content.split('\n').length} lines</div>
+               <button onClick={() => setViewPasteModal({ ...viewPasteModal, isOpen: false })} className={`px-8 py-3 rounded-xl font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 text-xs ${theme === 'dark' ? 'bg-white text-black hover:bg-[#00ff9d]' : 'bg-black text-white hover:bg-gray-800'}`}>Close Link</button>
+            </div>
           </div>
         </div>
       )}
