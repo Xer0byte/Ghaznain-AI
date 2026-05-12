@@ -865,6 +865,7 @@ export default function App() {
   });
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingIdeMessageIndex, setEditingIdeMessageIndex] = useState<number | null>(null);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1631,9 +1632,19 @@ Return "Code executed successfully with no output." if the program produces abso
       id: Date.now().toString() + "-user-optimistic", 
       timestamp: Date.now() 
     };
-    setIdeMessages(prev => [...prev, userMsg]);
+
+    if (editingIdeMessageIndex !== null) {
+      setIdeMessages(prev => {
+        const truncated = prev.slice(0, editingIdeMessageIndex);
+        return [...truncated, userMsg];
+      });
+    } else {
+      setIdeMessages(prev => [...prev, userMsg]);
+    }
+
     setIsThinkingIde(true);
     setIdePrompt('');
+    setEditingIdeMessageIndex(null);
     
     let activeConvId = currentIdeConversationId;
     if (!activeConvId) {
@@ -1647,6 +1658,16 @@ Return "Code executed successfully with no output." if the program produces abso
     }
 
     if (activeConvId) {
+      if (editingIdeMessageIndex !== null && ideMessages[editingIdeMessageIndex]?.timestamp) {
+        const threshold = ideMessages[editingIdeMessageIndex].timestamp;
+        const firestoreTimestamp = typeof threshold === 'number' ? Timestamp.fromMillis(threshold) : threshold;
+        try {
+          await firestoreService.deleteSandboxMessagesAfter(user.id, activeConvId, firestoreTimestamp, true);
+        } catch (err) {
+          console.error("Failed to delete sandbox messages on edit", err);
+        }
+      }
+
       await firestoreService.addSandboxMessage(user.id, activeConvId, {
         role: 'user',
         text: `[SANDBOX] ${originalPrompt}`
@@ -1706,7 +1727,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const aiMsgId = (Date.now() + 1).toString();
       
       try {
-        const cleanedHistory = prepareCleanHistory(ideMessages, 10, 700000);
+        let historyToUse = ideMessages;
+        if (editingIdeMessageIndex !== null) {
+          historyToUse = ideMessages.slice(0, editingIdeMessageIndex);
+        }
+        const cleanedHistory = prepareCleanHistory(historyToUse, 10, 700000);
 
         // Add initial AI message placeholder
         setIdeMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
@@ -1918,6 +1943,22 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     }
   };
 
+  const handleIdeEdit = (index: number) => {
+    const msg = ideMessages[index];
+    if (msg.role !== 'user') return;
+    
+    // Support stripping the [SANDBOX] prefix if it's there
+    let cleanText = msg.text;
+    if (cleanText.startsWith('[SANDBOX] ')) {
+      cleanText = cleanText.substring(10);
+    }
+    
+    setIdePrompt(cleanText);
+    setEditingIdeMessageIndex(index);
+    // Focus sandbox input if ref exists
+    // (I'll need to check if there's a ref for idePrompt input)
+  };
+
   const handleSend = async (text: string = inputText, isVoiceResponse: boolean = false) => {
     const now = Date.now();
     if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 500)) return;
@@ -2006,7 +2047,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         // Fix for "real world AI" behavior: delete subsequent messages (inclusive to replace original)
         const threshold = messages[editingMessageIndex].timestamp;
         const firestoreTimestamp = typeof threshold === 'number' ? Timestamp.fromMillis(threshold) : threshold;
-        firestoreService.deleteMessagesAfter(user.id, activeConvId, firestoreTimestamp, true).catch(err => console.error("Failed to delete messages on edit", err));
+        try {
+          await firestoreService.deleteMessagesAfter(user.id, activeConvId, firestoreTimestamp, true);
+        } catch (err) {
+          console.error("Failed to delete messages on edit", err);
+        }
       }
 
       firestoreService.addMessage(user.id, activeConvId, { 
@@ -4195,22 +4240,30 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
  
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
                   <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
-                  <textarea 
-                    ref={chatInputRef}
-                    value={inputText}
-                    onChange={handleInputChange}
-                    onKeyDown={e => { 
-                      if (e.key === 'Enter' && !e.shiftKey) { 
-                        e.preventDefault(); 
-                        handleSend(); 
-                      } 
-                    }}
-                    onPaste={handlePaste}
-                    placeholder={editingMessageIndex !== null ? "Clarify your instruction..." : (selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "Command Xero Engine...")}
-                    className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-[30vh] overflow-y-auto min-w-0 transition-all placeholder:font-black placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-[10px] md:placeholder:text-[11px] ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
-                  />
-                  <div className="flex items-center gap-2 pr-2 mb-1.5 self-end transition-all">
-                    <div className="relative">
+                    <textarea 
+                      ref={chatInputRef}
+                      value={inputText}
+                      onChange={handleInputChange}
+                      onKeyDown={e => { 
+                        if (e.key === 'Enter' && !e.shiftKey) { 
+                          e.preventDefault(); 
+                          handleSend(); 
+                        } 
+                      }}
+                      onPaste={handlePaste}
+                      placeholder={editingMessageIndex !== null ? "Editing message... Subsequent chats will be removed." : (selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "Command Xero Engine...")}
+                      className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-[30vh] overflow-y-auto min-w-0 transition-all placeholder:font-black placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-[10px] md:placeholder:text-[11px] ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
+                    />
+                    <div className="flex items-center gap-2 pr-2 mb-1.5 self-end transition-all">
+                      {editingMessageIndex !== null && (
+                        <button 
+                          onClick={() => { setEditingMessageIndex(null); setInputText(''); }} 
+                          className="p-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                      <div className="relative">
                       <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-2.5 rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`}>
                         <Mic size={20} strokeWidth={2.5} />
                       </button>
@@ -4846,7 +4899,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                                user={user}
                                copyToClipboard={copyToClipboard}
                                setAlertModal={setAlertModal}
-                               setInputText={setInputText}
+                               setInputText={setIdePrompt}
+                               handleEdit={handleIdeEdit}
                                setCanvasLanguage={setCanvasLanguage}
                                setCanvasContent={setCanvasContent}
                                setCanvasActiveProjectId={setCanvasActiveProjectId}
@@ -5158,11 +5212,19 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         onChange={e => setIdePrompt(e.target.value)}
                         onKeyDown={e => { if(e.key === 'Enter') handleIdeSubmit() }}
                         disabled={isThinkingIde}
-                        placeholder={ideSelectedFiles.length > 0 ? "Tell AI what to do with these files & code..." : "Prompt AI to edit your code (e.g., 'Change this to loop 10 times')"}
+                        placeholder={editingIdeMessageIndex !== null ? "Editing Sandbox prompt... Chat below will be removed." : (ideSelectedFiles.length > 0 ? "Tell AI what to do with these files & code..." : "Prompt AI to edit your code (e.g., 'Change this to loop 10 times')")}
                         className={`w-full bg-transparent border-none text-[15px] outline-none py-1 mr-2 ${theme === 'dark' ? 'text-white placeholder-gray-500' : 'text-black placeholder-gray-400'}`}
                       />
 
                       <div className="flex items-center gap-1 pr-1">
+                        {editingIdeMessageIndex !== null && (
+                          <button 
+                            onClick={() => { setEditingIdeMessageIndex(null); setIdePrompt(''); }} 
+                            className="p-2 mr-1 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all"
+                          >
+                            Cancel
+                          </button>
+                        )}
                         <button onClick={startListeningIde} className={`p-2 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListeningIde ? 'text-red-500 animate-pulse' : ''}`}>
                           <Mic size={20} />
                         </button>
