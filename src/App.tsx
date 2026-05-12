@@ -5,7 +5,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
-import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db } from './firebase';
+import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db, firebaseAppConfig } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
 import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile } from './lib/utils';
@@ -823,7 +823,16 @@ export default function App() {
     setAuthError(null);
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      // Add scopes for Google Drive
+      provider.addScope('https://www.googleapis.com/auth/drive.readonly');
+      provider.addScope('https://www.googleapis.com/auth/drive.file');
+      
+      const result = await signInWithPopup(auth, provider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        localStorage.setItem('google_access_token', credential.accessToken);
+        setGoogleAccessToken(credential.accessToken);
+      }
       setModals(prev => ({ ...prev, signIn: false, signUp: false }));
     } catch (err: any) {
       console.error("Google Auth Error Detail:", err);
@@ -872,6 +881,117 @@ export default function App() {
     return localStorage.getItem('xer0bytePrivateChat') === 'true';
   });
   const [inputText, setInputText] = useState('');
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(localStorage.getItem('google_access_token'));
+  const [isDrivePickerLoading, setIsDrivePickerLoading] = useState(false);
+  const [gapiLoaded, setGapiLoaded] = useState(false);
+  const [gisLoaded, setGisLoaded] = useState(false);
+  useEffect(() => {
+    // Load GAPI and GIS scripts for Google Drive Picker
+    const loadScripts = () => {
+      const gapiScript = document.createElement('script');
+      gapiScript.src = 'https://apis.google.com/js/api.js';
+      gapiScript.async = true;
+      gapiScript.defer = true;
+      gapiScript.onload = () => {
+        (window as any).gapi.load('picker', () => setGapiLoaded(true));
+      };
+      document.body.appendChild(gapiScript);
+
+      const gisScript = document.createElement('script');
+      gisScript.src = 'https://accounts.google.com/gsi/client';
+      gisScript.async = true;
+      gisScript.defer = true;
+      gisScript.onload = () => setGisLoaded(true);
+      document.body.appendChild(gisScript);
+    };
+
+    loadScripts();
+  }, []);
+
+  const openDrivePicker = async () => {
+    if (!googleAccessToken) {
+      setAlertModal({ isOpen: true, message: "Please sign in with Google to access your Drive." });
+      handleGoogleSuccess();
+      return;
+    }
+
+    if (!gapiLoaded || !gisLoaded) {
+      setAlertModal({ isOpen: true, message: "Google Drive scripts are still loading. Please try again in a moment." });
+      return;
+    }
+
+    setIsDrivePickerLoading(true);
+
+    try {
+      const picker = new (window as any).google.picker.PickerBuilder()
+        .addView((window as any).google.picker.ViewId.DOCS)
+        .setOAuthToken(googleAccessToken)
+        .setDeveloperKey(firebaseAppConfig.apiKey)
+        .setCallback(async (data: any) => {
+          if (data.action === (window as any).google.picker.Action.PICKED) {
+            const doc = data.docs[0];
+            const fileId = doc.id;
+            const fileName = doc.name;
+            const mimeType = doc.mimeType;
+
+            setAlertModal({ isOpen: true, message: `Reading file from Drive: ${fileName}...` });
+
+            try {
+              let downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+              let finalFileName = fileName;
+              let finalMimeType = mimeType;
+
+              // Handle Google Workspace documents that need exporting
+              if (mimeType === 'application/vnd.google-apps.document') {
+                downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/plain`;
+                finalFileName += '.txt';
+                finalMimeType = 'text/plain';
+              } else if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+                downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=text/csv`;
+                finalFileName += '.csv';
+                finalMimeType = 'text/csv';
+              } else if (mimeType === 'application/vnd.google-apps.presentation') {
+                downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=application/pdf`;
+                finalFileName += '.pdf';
+                finalMimeType = 'application/pdf';
+              }
+
+              const response = await fetch(downloadUrl, {
+                headers: { Authorization: `Bearer ${googleAccessToken}` }
+              });
+
+              if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                console.error("Drive download error:", errorData);
+                throw new Error(errorData.error?.message || "Failed to download file from Drive");
+              }
+
+              const blob = await response.blob();
+              const file = new File([blob], finalFileName, { type: finalMimeType });
+              
+              // Use existing handleFileSelect logic
+              const fakeEvent = {
+                target: {
+                  files: [file]
+                }
+              } as any;
+              handleFileSelect(fakeEvent);
+            } catch (err: any) {
+              console.error("Drive file fetch failed:", err);
+              setAlertModal({ isOpen: true, message: `Failed to read file from Google Drive: ${err.message}` });
+            }
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    } catch (err) {
+      console.error("Picker creation failed", err);
+      setAlertModal({ isOpen: true, message: "Failed to initialize Google Drive Picker." });
+    } finally {
+      setIsDrivePickerLoading(false);
+    }
+  };
+
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingMessage, setThinkingMessage] = useState("Processing request...");
   const [showScrollBottom, setShowScrollBottom] = useState(false);
@@ -1105,6 +1225,11 @@ export default function App() {
       setIsFetching(true);
       if (firebaseUser) {
         console.log("Firebase user detected:", firebaseUser.email);
+        // Ensure googleAccessToken is sync with localStorage
+        const storedToken = localStorage.getItem('google_access_token');
+        if (storedToken && !googleAccessToken) {
+          setGoogleAccessToken(storedToken);
+        }
         try {
           // Fetch or create user profile in Firestore
           let profile = await firestoreService.getUserProfile(firebaseUser.uid);
@@ -1166,6 +1291,8 @@ export default function App() {
         console.log("No Firebase user (logged out)");
         setUser(null);
         setToken(null);
+        setGoogleAccessToken(null);
+        localStorage.removeItem('google_access_token');
         localStorage.removeItem('xer0byteUser');
         localStorage.removeItem('xer0byteToken');
       }
@@ -1343,7 +1470,33 @@ export default function App() {
   useEffect(() => {
     if (!user || !currentIdeConversationId) return;
     const unsubscribe = firestoreService.subscribeToSandboxMessages(user.id, currentIdeConversationId, (msgs) => {
-      setIdeMessages(msgs);
+      setIdeMessages(prev => {
+        // Find if we have any active optimistic or streaming messages in IDE
+        const optimisticMessages = prev.filter(m => m.id && typeof m.id === 'string' && (m.id.endsWith("-streaming") || m.id.endsWith("-user-optimistic")));
+        
+        const msgIds = new Set(msgs.map(m => m.id));
+        const combined = [...msgs];
+        
+        optimisticMessages.forEach(optMsg => {
+          const isDuplicate = msgIds.has(optMsg.id) || msgs.some(m => 
+            m.role === optMsg.role && m.text.trim() === optMsg.text.trim()
+          );
+          if (!isDuplicate) {
+            combined.push(optMsg);
+          }
+        });
+        
+        // Normalize timestamps for sorting
+        const getTs = (m: any) => {
+          if (!m.timestamp) return Date.now();
+          if (typeof m.timestamp === 'number') return m.timestamp;
+          if (m.timestamp.toMillis) return m.timestamp.toMillis();
+          if (m.timestamp.seconds) return m.timestamp.seconds * 1000;
+          return Date.now();
+        };
+
+        return combined.sort((a, b) => getTs(a) - getTs(b));
+      });
     });
     return () => unsubscribe();
   }, [user, currentIdeConversationId]);
@@ -1475,7 +1628,7 @@ Return "Code executed successfully with no output." if the program produces abso
     const userMsg: Message = { 
       role: 'user', 
       text: originalPrompt, 
-      id: Date.now().toString(), 
+      id: Date.now().toString() + "-user-optimistic", 
       timestamp: Date.now() 
     };
     setIdeMessages(prev => [...prev, userMsg]);
@@ -1720,16 +1873,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     const unsubscribe = firestoreService.subscribeToMessages(user.id, currentConversationId, (msgs) => {
       setMessages(prev => {
         // Find if we have any active optimistic or streaming messages
-        const optimisticMessages = prev.filter(m => m.id && typeof m.id === 'string' && (m.id.endsWith("-streaming") || m.id.endsWith("-user-optimistic") || m.id.endsWith("-ai-final")));
+        const optimisticMessages = prev.filter(m => m.id && typeof m.id === 'string' && (m.id.endsWith("-streaming") || m.id.endsWith("-user-optimistic")));
         
+        // We create a map of existing IDs in msgs for O(1) lookup
+        const msgIds = new Set(msgs.map(m => m.id));
         const combined = [...msgs];
         
         optimisticMessages.forEach(optMsg => {
-          const alreadyIn = msgs.some(m => 
-            m.id === optMsg.id || 
-            (m.role === optMsg.role && m.text.trim() === optMsg.text.trim())
+          // Deduplicate: check by ID or by content hash/trim
+          const isDuplicate = msgIds.has(optMsg.id) || msgs.some(m => 
+            m.role === optMsg.role && 
+            m.text.trim() === optMsg.text.trim()
           );
-          if (!alreadyIn) {
+          
+          if (!isDuplicate) {
             combined.push(optMsg);
           }
         });
@@ -1946,9 +2103,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           // Clear "isThinking" as soon as we get first chunk to avoid dual UI
           setIsThinking(false);
 
-          // Throttle state updates to 60fps equivalent or slower for better scrolling perf
+          // Throttle state updates based on content length for better performance
           const now = Date.now();
-          if (now - lastUpdateTime > 80 || fullAiText.length < 50) {
+          // For longer messages, throttle more to reduce re-render overhead
+          const throttleLimit = fullAiText.length > 5000 ? 150 : (fullAiText.length > 1000 ? 100 : 80);
+          
+          if (now - lastUpdateTime > throttleLimit || fullAiText.length < 50) {
              setMessages(prev => {
                if (prev.length === 0) return prev;
                const lastIndex = prev.findIndex(m => m.id === aiMsgId);
@@ -3481,7 +3641,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
                         <span className="text-lg">📁</span> Upload Folder
                       </div>
-                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setAlertModal({ isOpen: true, message: "Google Drive integration coming soon!" }); setFileMenuOpen(false); }}>
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { openDrivePicker(); setFileMenuOpen(false); }}>
                         <span className="text-lg">☁️</span> Google Drive
                       </div>
                     </div>
@@ -3811,7 +3971,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
                           <span className="text-lg">📁</span> Upload Folder
                         </div>
-                        <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setAlertModal({ isOpen: true, message: "Google Drive integration coming soon!" }); setFileMenuOpen(false); }}>
+                        <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { openDrivePicker(); setFileMenuOpen(false); }}>
                           <span className="text-lg">☁️</span> Google Drive
                         </div>
                       </div>

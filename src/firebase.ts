@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const getEnvVar = (key: string) => {
@@ -30,7 +30,11 @@ const finalConfig = {
 
 const app = initializeApp(finalConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app, finalConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
+
+// Use initializeFirestore with experimentalForceLongPolling for better reliability in some environments
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, finalConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 
 // CRITICAL CONSTRAINT: When the application initially boots, call getFromServer to test the connection.
 async function testConnection() {
@@ -47,5 +51,6 @@ async function testConnection() {
 }
 testConnection();
 
+export const firebaseAppConfig = finalConfig;
 export { onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut };
 
