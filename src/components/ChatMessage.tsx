@@ -7,6 +7,68 @@ import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/pri
 import { Copy, Share, Volume2, ThumbsUp, ThumbsDown, RefreshCw, Play, PenTool, CheckCircle, Edit2, Download, FolderArchive } from 'lucide-react';
 import { copyToClipboard, extractFilesFromMarkdown, downloadProjectAsZip } from '../lib/utils';
 import JSZip from 'jszip';
+import { DataVisualizer } from './DataVisualizer';
+
+// Extracts and parses markdown tables to render charts automatically
+function parseTablesFromMarkdown(text: string) {
+  if (!text) return [];
+  const lines = text.split('\n');
+  const tables: string[][] = [];
+  let currentTable: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.startsWith('|') && line.endsWith('|')) {
+      currentTable.push(line);
+    } else {
+      if (currentTable.length >= 3) {
+        tables.push([...currentTable]);
+      }
+      currentTable = [];
+    }
+  }
+  if (currentTable.length >= 3) {
+    tables.push(currentTable);
+  }
+
+  const parsedTables = tables.map((rawLines, tableIndex) => {
+    const parseRow = (rowStr: string) => 
+      rowStr.split('|')
+        .map(cell => cell.trim())
+        .filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
+    
+    const headers = parseRow(rawLines[0]);
+    const rows = rawLines.slice(2).map(rowStr => parseRow(rowStr));
+    
+    const data = rows.map((cells) => {
+      const obj: any = {};
+      headers.forEach((hdr, colIdx) => {
+        const valueStr = cells[colIdx] || '';
+        const cleanVal = valueStr.replace(/[$,\s%]/g, '');
+        const num = parseFloat(cleanVal);
+        obj[hdr] = isNaN(num) ? valueStr : num;
+      });
+      return obj;
+    });
+
+    const numericKeys = headers.filter(hdr => {
+      return data.some(row => typeof row[hdr] === 'number');
+    });
+
+    const labelKeys = headers.filter(hdr => !numericKeys.includes(hdr));
+    const labelKey = labelKeys[0] || headers[0];
+
+    return {
+      id: `table-visual-${tableIndex}`,
+      headers,
+      numericKeys,
+      labelKey,
+      data
+    };
+  }).filter(t => t.data.length > 0 && t.numericKeys.length > 0);
+
+  return parsedTables;
+}
 
 interface ChatMessageProps {
   msg: any;
@@ -159,6 +221,11 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
     return msg.text.replace(/\[ALLOW_ZIP_DOWNLOAD\]/g, '').trim();
   }, [msg.text]);
 
+  const parsedTables = useMemo(() => {
+    if (!isAI || !displayMessageText) return [];
+    return parseTablesFromMarkdown(displayMessageText);
+  }, [isAI, displayMessageText]);
+
   const handleDownloadProject = async () => {
     if (extractedFiles.length === 0) return;
     setIsZipping(true);
@@ -283,6 +350,10 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
               ) : (
                 <MemoizedMarkdown content={displayMessageText.replace('[SANDBOX]', '').trim()} theme={theme} />
               )}
+              
+              {parsedTables.map((tbl: any) => (
+                <DataVisualizer key={tbl.id} tableData={tbl} theme={theme} />
+              ))}
               
               {showDownloadButton && (
                 <div className={`my-6 p-4 rounded-xl border flex flex-col sm:flex-row items-center justify-between gap-4 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-gray-50 border-gray-100'}`}>

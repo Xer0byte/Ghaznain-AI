@@ -8,7 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db, firebaseAppConfig } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile, extractFilesFromMarkdown } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
@@ -18,6 +18,8 @@ import * as XLSX from 'xlsx';
 import VoiceAI from './components/VoiceAI';
 import NotebookUI from './components/NotebookUI';
 import { ChatMessage } from './components/ChatMessage';
+import { WorkspaceFileTree } from './components/WorkspaceFileTree';
+import { CommandPalette } from './components/CommandPalette';
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -871,6 +873,7 @@ export default function App() {
     return true;
   });
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [editingIdeMessageIndex, setEditingIdeMessageIndex] = useState<number | null>(null);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
@@ -1379,6 +1382,18 @@ export default function App() {
     localStorage.setItem('xer0bytePrivateChat', String(isPrivateChat));
     localStorage.setItem('xer0byteSettings', JSON.stringify(settings));
   }, [theme, view, currentConversationId, selectedModel, persona, useWebSearch, useXer0byteStyle, isPrivateChat, settings]);
+
+  // Global Keyboard shortcuts for Command Palette (Ctrl+K or Cmd+K)
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, []);
 
   const toggleSetting = (key: keyof typeof settings) => {
     setSettingsState(prev => ({ ...prev, [key]: !prev[key] }));
@@ -3618,6 +3633,28 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
 
+      <CommandPalette 
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        theme={theme}
+        setTheme={setTheme}
+        setView={setView}
+        resetMessages={() => { setMessages([]); setCurrentConversationId(null); }}
+        toggleAutoScroll={() => {
+          setSettingsState(prev => ({ ...prev, autoScroll: !prev.autoScroll }));
+        }}
+        triggerDeepDive={() => {
+          setView('notebook');
+        }}
+        selectedFiles={selectedFiles}
+        onViewFile={(file) => {
+          setAlertModal({ 
+            isOpen: true, 
+            message: `Viewing File: ${file.name}\n\n${truncateText(file.data, 800)}` 
+          });
+        }}
+      />
+
       {firestoreOffline && (
         <div className="fixed top-2 left-1/2 -translate-x-1/2 z-[1000] w-[90%] max-w-md p-3 rounded-xl bg-red-600 text-white shadow-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="flex items-center gap-3">
@@ -3710,6 +3747,34 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             </div>
           )}
         </div>
+
+        {/* Beautiful Workspace File Sidebar (Collapsible Tree View) */}
+        {user && (
+          <WorkspaceFileTree 
+            selectedFiles={selectedFiles}
+            setSelectedFiles={setSelectedFiles}
+            ideSelectedFiles={ideSelectedFiles}
+            setIdeSelectedFiles={setIdeSelectedFiles}
+            extractedFiles={(() => {
+              if (messages.length === 0) return [];
+              const lastMsg = messages[messages.length - 1];
+              if (lastMsg.role !== 'ai' || !lastMsg.text) return [];
+              return extractFilesFromMarkdown(lastMsg.text);
+            })()}
+            theme={theme}
+            onViewFile={(file) => {
+              setAlertModal({ 
+                isOpen: true, 
+                message: `Viewing File: ${file.name}\n\n${truncateText(file.data, 800)}` 
+              });
+            }}
+            onSendToSandbox={(filename, content) => {
+              setIdePrompt(`Check this file: ${filename}\n\nContent:\n${content}`);
+              setView('ide');
+              setAlertModal({ isOpen: true, message: `Opened '${filename}' content inside Neural Sandbox IDE input box.` });
+            }}
+          />
+        )}
 
         <div className="mt-auto flex flex-col gap-4">
           {/* Storage Usage Card - Restored Original Style with Premium Flowing Liquid Water effect */}
@@ -4229,6 +4294,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </div>
                 )}
                 <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+                  {isListening && (
+                    <div className="absolute inset-y-1.5 left-24 right-1.5 z-50 flex items-center bg-transparent backdrop-blur-[0.5px] pointer-events-none">
+                      <div className={`flex items-center gap-1.5 px-4 py-2 rounded-full border shadow-lg shadow-black/10 ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333]' : 'bg-white border-[#ddd]'}`}>
+                        <div className="flex items-center gap-1 text-red-500">
+                          <span className="w-1.5 h-3 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0s', animationDuration: '0.6s' }}></span>
+                          <span className="w-1.5 h-6 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.4s' }}></span>
+                          <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.5s' }}></span>
+                          <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.3s', animationDuration: '0.3s' }}></span>
+                          <span className="w-1.5 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s', animationDuration: '0.6s' }}></span>
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] leading-none">Voice Active... Speak Now</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="relative flex items-center mb-1">
                     <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
                       <Plus size={20} />
@@ -5344,7 +5423,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                        ))}
                      </div>
                    )}
-                   <div className={`flex items-center rounded-full px-2 py-1.5 border transition-all shadow-sm ${theme === 'dark' ? 'bg-[#0a0a0a] border-[#444] focus-within:border-[#00ff9d] focus-within:ring-2 focus-within:ring-[#00ff9d]/20' : 'bg-[#f5f5f5] border-[#ccc] focus-within:border-[#006633] focus-within:ring-2 focus-within:ring-[#006633]/20'}`}>
+                   <div className={`flex items-center rounded-full px-2 py-1.5 border transition-all shadow-sm relative ${theme === 'dark' ? 'bg-[#0a0a0a] border-[#444] focus-within:border-[#00ff9d] focus-within:ring-2 focus-within:ring-[#00ff9d]/20' : 'bg-[#f5f5f5] border-[#ccc] focus-within:border-[#006633] focus-within:ring-2 focus-within:ring-[#006633]/20'}`}>
+                     {isListeningIde && (
+                       <div className="absolute inset-y-1.5 left-16 right-1.5 z-50 flex items-center bg-transparent backdrop-blur-[0.5px] pointer-events-none">
+                         <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-lg ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333]' : 'bg-white border-[#ddd]'}`}>
+                           <div className="flex items-center gap-1 text-red-500">
+                             <span className="w-1.5 h-3 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0s', animationDuration: '0.6s' }}></span>
+                             <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.4s' }}></span>
+                             <span className="w-1.5 h-3.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.5s' }}></span>
+                             <span className="w-1.5 h-4.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.3s', animationDuration: '0.3s' }}></span>
+                           </div>
+                           <span className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] leading-none">Voice IDE active...</span>
+                         </div>
+                       </div>
+                     )}
                       <div className="flex items-center gap-1 md:gap-2 px-1">
                         <input type="file" ref={ideFileInputRef} onChange={handleIdeFileSelect} className="hidden" accept="*/*" multiple />
                         <input type="file" ref={ideFolderInputRef} onChange={handleIdeFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />

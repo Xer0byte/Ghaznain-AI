@@ -2,5 +2,5 @@
   "name": "Neural X: The Infinite AI",
   "description": "High-velocity Neural IDE with real-time Sandbox, 4K Image Generation, and Interactive Voice Mode. Built for professionals.",
   "requestFramePermissions": ["microphone", "geolocation"],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
