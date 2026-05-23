@@ -4137,18 +4137,6 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               onScroll={handleManualScroll}
               className="flex-1 overflow-y-auto px-4 py-6 md:px-6 pt-20 md:pt-28 pb-6 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden z-10"
             >
-              {showScrollBottom && (
-                <button 
-                  onClick={() => scrollToBottom()}
-                  className={`absolute bottom-6 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/60 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-black hover:text-black bg-white/60 backdrop-blur-xl'}`}
-                >
-                  <div className="relative">
-                    <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#00ff9d] rounded-full border-2 border-inherit animate-pulse"></div>
-                    <ChevronDown size={18} className="group-hover:translate-y-0.5 transition-transform" />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest">Neural Link Syncing</span>
-                </button>
-              )}
               {messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center opacity-30 select-none text-center p-10">
                   <MessageSquare size={80} className="mb-6 opacity-20" />
@@ -4197,6 +4185,19 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               )}
               <div ref={messagesEndRef} />
             </div>
+
+            {showScrollBottom && (
+              <button 
+                onClick={() => scrollToBottom()}
+                className={`absolute bottom-[130px] md:bottom-[150px] right-6 md:right-8 z-40 px-4 py-2 rounded-full shadow-2xl transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/95 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-black hover:text-black bg-white/95 backdrop-blur-xl animate-in fade-in slide-in-from-bottom-2'}`}
+              >
+                <div className="relative">
+                  <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#00ff9d] rounded-full border-2 border-inherit animate-pulse"></div>
+                  <ChevronDown size={18} className="group-hover:translate-y-0.5 transition-transform" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest">Scroll to Latest</span>
+              </button>
+            )}
             
             {/* Input area rendered inline below the list to prevent overlapping layout entirely */}
             <div className={`p-4 md:p-6 pb-6 w-full ${theme === 'dark' ? 'bg-[#000]' : 'bg-white'} border-t ${theme === 'dark' ? 'border-[#111]' : 'border-gray-100'} z-20 shrink-0`}>
@@ -5022,15 +5023,6 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         onScroll={handleIdeManualScroll}
                         className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar scroll-smooth"
                       >
-                        {showIdeScrollBottom && (
-                          <button 
-                            onClick={() => scrollToIdeBottom()}
-                            className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in hover:scale-105 ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}
-                          >
-                            <ChevronDown size={14} className="animate-bounce" />
-                            <span className="text-[10px] font-bold">New message</span>
-                          </button>
-                        )}
                         {ideMessages.length === 0 ? (
                           <div className="h-full flex flex-col items-center justify-center opacity-20 text-center p-6 space-y-3">
                             <PenTool size={40} />
@@ -5060,6 +5052,16 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         )}
                         <div ref={ideMessagesEndRef} />
                       </div>
+
+                      {showIdeScrollBottom && (
+                        <button 
+                          onClick={() => scrollToIdeBottom()}
+                          className={`absolute bottom-[86px] left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 px-3 py-1.5 rounded-full shadow-lg border transition-all animate-in fade-in zoom-in hover:scale-105 ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/95 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-[#aaa] hover:text-black bg-white/95 backdrop-blur-xl'}`}
+                        >
+                          <ChevronDown size={14} className="animate-bounce" />
+                          <span className="text-[10px] font-black uppercase tracking-widest">Scroll to Latest</span>
+                        </button>
+                      )}
                     </div>
                   )}
 
