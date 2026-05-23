@@ -14,7 +14,7 @@ interface ChatMessageProps {
   messagesLength: number;
   theme: 'light' | 'dark';
   user: any;
-  copyToClipboard: (text: string) => void;
+  copyToClipboard: (text: string) => any;
   setAlertModal: (modal: any) => void;
   setInputText: (text: string) => void;
   setCanvasLanguage: (lang: string) => void;
@@ -27,6 +27,72 @@ interface ChatMessageProps {
   compact?: boolean;
 }
 
+const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; theme: string }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const success = await copyToClipboard(children);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <div className="relative my-6 rounded-xl overflow-hidden border border-[#eee] dark:border-[#222] shadow-sm">
+      {/* Sleek Toolbar Header */}
+      <div className="flex items-center justify-between px-4 py-2 bg-[#f6f6f6] dark:bg-[#121212] border-b border-[#eee] dark:border-[#222] select-none">
+        <div className="flex items-center gap-2">
+          {/* Decorative Terminal Dots */}
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400 opacity-60"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 opacity-60"></span>
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 opacity-60"></span>
+          </div>
+          {lang && (
+            <span className="text-[10px] font-mono font-extrabold uppercase tracking-widest text-[#555] dark:text-white/40 ml-2">
+              {lang}
+            </span>
+          )}
+        </div>
+        <button 
+          onClick={handleCopy}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-tight transition-all active:scale-95 border duration-150 ${
+            copied 
+              ? 'bg-emerald-600 border-emerald-500 text-white' 
+              : 'bg-white dark:bg-[#1e1e1e] border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 shadow-sm'
+          }`}
+          title="Copy Code Snippet"
+        >
+          {copied ? <CheckCircle size={11} className="text-white" /> : <Copy size={11} />}
+          <span>{copied ? 'Copied!' : 'Copy'}</span>
+        </button>
+      </div>
+
+      {/* Actual Highlighter Container */}
+      <div className="relative w-full overflow-hidden">
+        <SyntaxHighlighter
+          style={theme === 'dark' ? vscDarkPlus : prism}
+          language={lang || 'typescript'}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            borderRadius: '0px', 
+            fontSize: '13px',
+            lineHeight: '1.65',
+            background: theme === 'dark' ? '#070707' : '#fafafa',
+            padding: '1.25rem',
+            overflowX: 'auto',
+            border: 'none',
+          }}
+        >
+          {children}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+};
+
 const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; theme: string }) => {
   return (
     <ReactMarkdown 
@@ -38,32 +104,9 @@ const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; them
           
           if (!inline && match) {
             return (
-              <div className="relative group/code my-4">
-                <div className="absolute right-2 top-2 z-10 opacity-0 group-hover/code:opacity-100 transition-opacity">
-                  <button 
-                    onClick={() => copyToClipboard(String(children).replace(/\n$/, ''))}
-                    className="p-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm transition-colors"
-                    title="Copy code"
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
-                <SyntaxHighlighter
-                  style={theme === 'dark' ? vscDarkPlus : prism}
-                  language={lang}
-                  PreTag="div"
-                  customStyle={{
-                    margin: 0,
-                    borderRadius: '0.75rem',
-                    fontSize: '0.85rem',
-                    background: theme === 'dark' ? '#0d0d0d' : '#f8f8f8',
-                    border: theme === 'dark' ? '1px solid #333' : '1px solid #eee'
-                  }}
-                  {...props}
-                >
-                  {String(children).replace(/\n$/, '')}
-                </SyntaxHighlighter>
-              </div>
+              <CodeBlock lang={lang} theme={theme}>
+                {String(children).replace(/\n$/, '')}
+              </CodeBlock>
             );
           }
           return (
@@ -178,9 +221,57 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
             </div>
           )}
           
-          <div className={!isAI ? (theme === 'dark' && compact ? 'text-black w-full' : 'text-white w-full') : 'w-full min-w-0'}>
+          <div className={!isAI ? 'text-white w-full' : 'w-full min-w-0'}>
             {!isAI ? msg.text.replace('[SANDBOX]', '').trim() : null}
           </div>
+
+          {/* User Attached Files Preview and Downloads */}
+          {msg.files && msg.files.length > 0 && (
+            <div className={`mt-3 pt-3 border-t ${theme === 'dark' ? 'border-white/10' : 'border-white/20'} w-full flex flex-wrap gap-2`}>
+              {msg.files.map((file: any, fIdx: number) => {
+                const isImg = file.mimeType?.startsWith('image/');
+                const isPdf = file.mimeType === 'application/pdf' || file.name?.endsWith('.pdf');
+                
+                return (
+                  <div 
+                    key={fIdx} 
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-[11px] max-w-full select-none ${
+                      theme === 'dark'
+                        ? 'bg-[#1b1b1b] border-white/5 text-gray-200'
+                        : 'bg-white/10 border-white/10 text-white'
+                    }`}
+                  >
+                    {isImg ? (
+                      <span className="text-emerald-400">🖼️</span>
+                    ) : isPdf ? (
+                      <span className="text-rose-400">📕</span>
+                    ) : (
+                      <span className="text-sky-450 text-blue-300">📄</span>
+                    )}
+                    <span className="truncate max-w-[150px] font-bold" title={file.name}>
+                      {file.name || 'Attachment'}
+                    </span>
+                    {file.data && (
+                      <button
+                        onClick={() => {
+                          const link = document.createElement('a');
+                          link.href = file.data.startsWith('data:') ? file.data : `data:${file.mimeType || 'application/octet-stream'};base64,${file.data}`;
+                          link.download = file.name || 'download';
+                          document.body.appendChild(link);
+                          link.click();
+                          document.body.removeChild(link);
+                        }}
+                        className="ml-1 opacity-70 hover:opacity-100 hover:scale-110 active:scale-95 transition-all text-white"
+                        title="Download"
+                      >
+                        <Download size={11} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           
           {isAI ? (
             <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white' : 'prose-zinc prose-a:text-blue-600 prose-strong:text-black'} max-w-none w-full min-w-0`}>
@@ -216,38 +307,81 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
               )}
 
               {/* AI Message Actions */}
-              <div className={`flex flex-wrap items-center gap-2 mt-5 transition-all duration-200`}>
-                <button onClick={() => copyToClipboard(msg.text)} className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Copy Response">
-                  <Copy size={13} /> <span>Copy</span>
+              <div className="flex flex-wrap items-center gap-2 mt-6 transition-all duration-200 border-t border-inherit pt-4">
+                <button 
+                  onClick={() => copyToClipboard(msg.text)} 
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 border ${
+                    theme === 'dark' 
+                      ? 'bg-[#151515] text-[#ccc] border-[#222] hover:bg-[#222] hover:text-[#00ff9d]' 
+                      : 'bg-[#fafafa] text-[#444] border-[#eee] hover:bg-[#eee] hover:text-black'
+                  }`} 
+                  title="Copy Response"
+                >
+                  <Copy size={12} /> <span>Copy</span>
                 </button>
-                <button onClick={() => {
-                  if (navigator.share) {
-                    navigator.share({ title: 'AI Response', text: msg.text }).catch(console.error);
-                  } else {
-                    copyToClipboard(msg.text);
-                    setAlertModal({ isOpen: true, message: "Copied to clipboard!" });
-                  }
-                }} className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Share">
-                  <Share size={13} />
+                <button 
+                  onClick={async () => {
+                    try {
+                      const isIframe = window.self !== window.top;
+                      if (!isIframe && navigator.share && navigator.canShare && navigator.canShare({ text: msg.text })) {
+                        await navigator.share({ title: 'AI Response', text: msg.text });
+                      } else {
+                        const success = await copyToClipboard(msg.text);
+                        if (success) {
+                          setAlertModal({ isOpen: true, message: "Response successfully copied to clipboard! Ready to share." });
+                        }
+                      }
+                    } catch (error) {
+                      console.error("Web Share failed, fallback to copy to clipboard", error);
+                      const success = await copyToClipboard(msg.text);
+                      if (success) {
+                        setAlertModal({ isOpen: true, message: "Response copied to clipboard!" });
+                      }
+                    }
+                  }} 
+                  className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 border ${
+                    theme === 'dark' 
+                      ? 'bg-[#151515] text-[#ccc] border-[#222] hover:bg-[#222] hover:text-[#00ff9d]' 
+                      : 'bg-[#fafafa] text-[#444] border-[#eee] hover:bg-[#eee] hover:text-black'
+                  }`} 
+                  title="Share"
+                >
+                  <Share size={12} />
                 </button>
-                <button onClick={() => {
-                  const utterance = new SpeechSynthesisUtterance(msg.text);
-                  window.speechSynthesis.speak(utterance);
-                }} className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} title="Speak">
-                  <Volume2 size={13} />
+                <button 
+                  onClick={() => {
+                    const utterance = new SpeechSynthesisUtterance(msg.text);
+                    window.speechSynthesis.speak(utterance);
+                  }} 
+                  className={`p-2 rounded-xl text-xs flex items-center justify-center shadow-sm transition-all active:scale-95 border ${
+                    theme === 'dark' 
+                      ? 'bg-[#151515] text-[#ccc] border-[#222] hover:bg-[#222] hover:text-[#00ff9d]' 
+                      : 'bg-[#fafafa] text-[#444] border-[#eee] hover:bg-[#eee] hover:text-black'
+                  }`} 
+                  title="Speak"
+                >
+                  <Volume2 size={12} />
                 </button>
-                <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-white/10' : 'bg-gray-200'} mx-1`}></div>
-                <button className={`p-2 rounded-lg text-xs transition-colors ${theme === 'dark' ? 'text-white/20 hover:text-white' : 'text-gray-300 hover:text-black'}`} title="Helpful">
-                  <ThumbsUp size={13} />
+                <div className={`h-4 w-[1px] ${theme === 'dark' ? 'bg-white/10' : 'bg-gray-200'} mx-0.5`}></div>
+                <button className={`p-2 rounded-xl text-xs transition-colors border ${theme === 'dark' ? 'bg-[#151515]/40 text-[#555] border-[#222] hover:text-[#aaa]' : 'bg-[#fafafa]/40 text-gray-400 border-[#eee] hover:text-gray-800'}`} title="Helpful">
+                  <ThumbsUp size={12} />
                 </button>
-                <button className={`p-2 rounded-lg text-xs transition-colors ${theme === 'dark' ? 'text-white/20 hover:text-white' : 'text-gray-300 hover:text-black'}`} title="Not helpful">
-                  <ThumbsDown size={13} />
+                <button className={`p-2 rounded-xl text-xs transition-colors border ${theme === 'dark' ? 'bg-[#151515]/40 text-[#555] border-[#222] hover:text-[#aaa]' : 'bg-[#fafafa]/40 text-gray-400 border-[#eee] hover:text-gray-800'}`} title="Not helpful">
+                  <ThumbsDown size={12} />
                 </button>
                 {i === messagesLength - 1 && (
-                  <button onClick={() => {
-                    setInputText(msg.text);
-                  }} className={`px-4 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white' : 'bg-black text-white hover:bg-gray-800'}`} title="Regenerate">
-                    <RefreshCw size={13} /> <span>Retry</span>
+                  <button 
+                    onClick={() => {
+                      setInputText(msg.text);
+                    }} 
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 border ${
+                      theme === 'dark' 
+                        ? 'bg-[#00ff9d]/10 text-[#00ff9d] border-[#00ff9d]/30 hover:bg-[#00ff9d]/20' 
+                        : 'bg-black text-white border-transparent hover:bg-gray-800'
+                    }`} 
+                    title="Regenerate"
+                  >
+                    <RefreshCw size={12} /> <span>Retry</span>
                   </button>
                 )}
                 {msg.text.length > 200 && (
@@ -288,27 +422,37 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
               </div>
             </div>
           ) : (
-            <div className="relative">
-              {/* User Message Actions */}
-              <div className="absolute -bottom-10 right-0 flex items-center gap-2 pt-2">
-                <button 
-                  onClick={() => handleEdit ? handleEdit(i) : setInputText(msg.text)} 
-                  className={`px-3 py-1.5 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} 
-                  title="Edit Message"
-                >
-                  <Edit2 size={12} /> <span>Edit</span>
-                </button>
-                <button 
-                  onClick={() => copyToClipboard(msg.text)} 
-                  className={`px-3 py-1.5 rounded-xl text-[10px] md:text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`} 
-                  title="Copy"
-                >
-                  <Copy size={12} /> <span>Copy</span>
-                </button>
-              </div>
-            </div>
+            null
           )}
         </div>
+
+        {/* User Message Actions positioned inline underneath user bubbles (avoids layout overlap completely) */}
+        {!isAI && (
+          <div className="flex items-center gap-2 mt-2 px-1 animate-fadeIn">
+            <button 
+              onClick={() => handleEdit ? handleEdit(i) : setInputText(msg.text)} 
+              className={`px-3 py-1.5 rounded-xl text-[10px] md:text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${
+                theme === 'dark' 
+                  ? 'bg-[#222] text-gray-300 hover:bg-[#333] hover:text-white border border-[#333]' 
+                  : 'bg-white text-gray-700 hover:bg-gray-100 hover:text-black border border-gray-200 shadow'
+              }`} 
+              title="Edit Message"
+            >
+              <Edit2 size={12} /> <span>Edit</span>
+            </button>
+            <button 
+              onClick={() => copyToClipboard(msg.text)} 
+              className={`px-3 py-1.5 rounded-xl text-[10px] md:text-sm font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 ${
+                theme === 'dark' 
+                  ? 'bg-[#222] text-gray-300 hover:bg-[#333] hover:text-white border border-[#333]' 
+                  : 'bg-white text-gray-700 hover:bg-gray-100 hover:text-black border border-gray-200 shadow'
+              }`} 
+              title="Copy"
+            >
+              <Copy size={12} /> <span>Copy</span>
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );

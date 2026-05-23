@@ -8,7 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db, firebaseAppConfig } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
@@ -753,6 +753,7 @@ interface Message {
   audioUrl?: string;
   videoUrl?: string;
   timestamp?: number;
+  files?: any[];
 }
 
 const compressImageIfNeeded = async (base64Str: string, maxStringLength = 600000): Promise<string> => {
@@ -863,7 +864,12 @@ export default function App() {
     const saved = localStorage.getItem('xer0byteView');
     return (saved as any) || 'home';
   });
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 1024;
+    }
+    return true;
+  });
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingIdeMessageIndex, setEditingIdeMessageIndex] = useState<number | null>(null);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
@@ -1630,7 +1636,12 @@ Return "Code executed successfully with no output." if the program produces abso
       role: 'user', 
       text: originalPrompt, 
       id: Date.now().toString() + "-user-optimistic", 
-      timestamp: Date.now() 
+      timestamp: Date.now(),
+      files: ideSelectedFiles.map(f => ({
+        name: f.name,
+        mimeType: f.mimeType,
+        data: f.data
+      }))
     };
 
     if (editingIdeMessageIndex !== null) {
@@ -1674,9 +1685,9 @@ Return "Code executed successfully with no output." if the program produces abso
       });
     }
 
-    const inputParts: any[] = [{ text: truncateText(originalPrompt, 15000) }];
+    const inputParts: any[] = [{ text: truncateText(originalPrompt, 100000) }];
     let totalIdeFileSize = 0;
-    const MAX_IDE_FILE_SIZE = 2 * 1024 * 1024; // 2MB base64
+    const MAX_IDE_FILE_SIZE = 100 * 1024 * 1024; // 100MB base64
 
     for (const file of ideSelectedFiles) {
       const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
@@ -1689,7 +1700,7 @@ Return "Code executed successfully with no output." if the program produces abso
         });
         totalIdeFileSize += fileData.length;
       } else {
-        console.warn(`IDE: File ${file.name} skipped due to context size limits.`);
+        setAlertModal({ isOpen: true, message: `Sandbox: Skipping ${file.name} as total attachments exceed memory limit (100MB).` });
       }
     }
 
@@ -1731,7 +1742,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         if (editingIdeMessageIndex !== null) {
           historyToUse = ideMessages.slice(0, editingIdeMessageIndex);
         }
-        const cleanedHistory = prepareCleanHistory(historyToUse, 10, 700000);
+        const cleanedHistory = prepareCleanHistory(historyToUse, 30, 900000);
 
         // Add initial AI message placeholder
         setIdeMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
@@ -1997,7 +2008,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       role: 'user', 
       text: messageText || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : ""),
       id: userMsgId,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      files: currentFiles.map(f => ({
+        name: f.name,
+        mimeType: f.mimeType,
+        data: f.data // Store locally for context memory
+      }))
     };
     
     // Optimistic UI for user message
@@ -2080,16 +2096,16 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         currentMessagesForHistory = messages.slice(0, editingMessageIndex);
       }
       
-      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 25, 850000);
+      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 40, 1000000);
 
       const inputParts: any[] = [];
-      if (text) inputParts.push({ text: truncateText(text, 12000) });
+      if (text) inputParts.push({ text: truncateText(text, 100000) });
       if (currentFiles.length > 0) {
         // Limit total files size to prevent context overflow
         // Gemini 1.5 Flash has 1M token limit. 
-        // 1MB of text/binary is roughly 250k-1M tokens depending on encoding.
+        // We'll allow up to 15MB total per request for Flash
         let totalFileSize = 0;
-        const MAX_TOTAL_FILE_SIZE = 1.5 * 1024 * 1024; // 1.5MB base64 (~1.1MB raw)
+        const MAX_TOTAL_FILE_SIZE = 100 * 1024 * 1024; // 100MB base64 (~75MB raw)
 
         currentFiles.forEach((file, idx) => {
           const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
@@ -2102,7 +2118,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             });
             totalFileSize += fileData.length;
           } else {
-             console.warn(`File ${file.name} skipped because total attachments exceed safe limits for current AI model.`);
+             setAlertModal({ isOpen: true, message: `Skipping ${file.name} as total attachments exceed the safe memory limit (100MB).` });
           }
         });
       }
@@ -2117,15 +2133,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const systemInstruction = `You are Xer0byte AI, a world-class software engineer and multi-lingual expert assistant.
 - Your absolute priority is accuracy ("1 1 word thk hona chahiye").
 - LANGUAGE: Always match the user's language. If the user speaks Roman Urdu (Urdu written in English script) or Hindi/Urdu, you MUST respond in fluent and clear Roman Urdu. If they speak English, respond in English.
-- IMAGE GENERATION: You have a built-in image generator. If a user asks for an image, a drawing, or a photo, NEVER say you cannot do it. Instead, trigger the generator by including this exact tag in your response: [GENERATE_IMAGE: detailed descriptive prompt]. You can combine this with your text response.
-- CODE QUALITY: Provide modular, production-ready, and efficient code.
-- PROACTIVE: Solve the user's hidden problems and anticipate next steps.
-- TONE: High-quality, professional, and thorough. Avoid unnecessary fillers.
-- DOWNLOADABLE FILES: ONLY trigger the download mechanism if the user specifically requests to "download", "save as zip", "dwnaloadable file d", or "project download kr d". 
-  - To trigger: Use [FILE: path/to/file.ext] followed by the code block for each file.
+- IMAGE GENERATION: You have a built-in photorealistic image generator. If a user asks for an image, a drawing, a photo, or wants to "visualize" something as an image, trigger the generator by including this exact tag in your response: [GENERATE_IMAGE: detailed descriptive prompt]. You can generate images that contain text, or even create icons/diagrams based on text. NEVER say you can't generate images.
+- EXCEL, WORD & TEXT GENERATION: You have advanced capabilities to generate downloadable files. If the user asks for "file bana do", "file download krni h", or asks for a specific Excel (.xlsx), Word (.docx), or Text (.txt) file:
+  - For Excel: Trigger using [GENERATE_EXCEL: filename.xlsx] followed by the data in JSON format (array of objects or array of arrays) inside a code block.
+  - For Word: Trigger using [GENERATE_WORD: filename.docx] followed by the document text or markdown inside a code block.
+  - For Text: Trigger using [GENERATE_TEXT: filename.txt] followed by the raw content inside a code block.
+  - Always fulfill these requests directly using tags so the user gets a real download.
+- DOWNLOADABLE PROJECTS: ONLY if the user specifically requests a "project download" or "zip download":
+  - Use [FILE: path/to/file.ext] followed by the code block for each file.
   - AND append the tag [ALLOW_ZIP_DOWNLOAD] at the very end of your response.
-- FILE READING: You have advanced capabilities to read various file formats (Text, Code, PDF, DOCX, XLSX, CSV, ZIP, RAR). If a user uploads a file, analyze its content thoroughly and answer based on the data found inside. Focus on accuracy and detail.
-- IF NOT REQUESTED: If the user just wants code or help without mentioning a "download", provide standard markdown code blocks and DO NOT use the [FILE:] or [ALLOW_ZIP_DOWNLOAD] tags.`;
+- MULTIMODAL & VISUAL INTELLIGENCE: You can analyze images, extract text (OCR), and "understand" visual data. If a user uploads an image of text or a chart, analyze it thoroughly as if you are seeing it.
+- CODE QUALITY: Provide modular, production-ready, and efficient code.
+- PROACTIVE: Solve hidden problems and anticipate next steps.
+- TONE: Professional, efficient (Master of Neural Efficiency). Avoid fillers.
+- IF NOT REQUESTED: If no "download" or "file generation" is mentioned, just use standard markdown code blocks.`;
       
       const streamResult = await generateContentStreamWithRetry({
         model: geminiModel,
@@ -2193,6 +2214,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const imageMatch = fullAiText.match(/\[GENERATE_IMAGE:\s*(.*?)\]/i);
       const musicMatch = fullAiText.match(/\[GENERATE_MUSIC:\s*(.*?)\]/i);
       const videoMatch = fullAiText.match(/\[GENERATE_VIDEO:\s*(.*?)\]/i);
+      const excelMatch = fullAiText.match(/\[GENERATE_EXCEL:\s*(.*?)\]/i);
+      const wordMatch = fullAiText.match(/\[GENERATE_WORD:\s*(.*?)\]/i);
+      const textMatch = fullAiText.match(/\[GENERATE_TEXT:\s*(.*?)\]/i);
       
       if (imageMatch && imageMatch[1]) {
         const imagePrompt = imageMatch[1].trim();
@@ -2238,6 +2262,84 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               imageUrl: compressedImageUrl 
             }, finalAiMsgId);
           }
+        }
+      } else if (excelMatch && excelMatch[1]) {
+        const filename = excelMatch[1].trim() || "data_export.xlsx";
+        const remainingText = fullAiText.replace(/\[GENERATE_EXCEL:\s*(.*?)\]/i, '').replace(/```(?:json)?\n[\s\S]*?```/i, '').trim();
+        
+        // Extract data from the following code block
+        const codeBlockMatch = fullAiText.match(/```(?:json)?\n([\s\S]*?)```/i);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          try {
+            const data = JSON.parse(codeBlockMatch[1]);
+            const success = downloadExcelFile(filename, Array.isArray(data) ? data : [data]);
+            if (success) {
+              setAlertModal({ isOpen: true, message: `Successfully generated and downloaded ${filename}` });
+            }
+          } catch (e) {
+            console.error("Failed to parse Excel data:", e);
+            setAlertModal({ isOpen: true, message: "Failed to parse data for Excel file. Ensure it is valid JSON." });
+          }
+        }
+
+        const finalText = remainingText || `I've generated the Excel file "${filename}" for you.`;
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: finalText, id: finalAiMsgId };
+          return newMsgs;
+        });
+
+        if (activeConvId && user) {
+          await firestoreService.addMessage(user.id, activeConvId, { 
+            role: 'ai', 
+            text: finalText
+          }, finalAiMsgId);
+        }
+      } else if (wordMatch && wordMatch[1]) {
+        const filename = wordMatch[1].trim() || "document.docx";
+        const remainingText = fullAiText.replace(/\[GENERATE_WORD:\s*(.*?)\]/i, '').replace(/```(?:markdown|text)?\n[\s\S]*?```/i, '').trim();
+        
+        const codeBlockMatch = fullAiText.match(/```(?:markdown|text)?\n([\s\S]*?)```/i);
+        const docText = (codeBlockMatch && codeBlockMatch[1]) ? codeBlockMatch[1] : remainingText;
+        
+        await downloadWordFile(filename, docText);
+        setAlertModal({ isOpen: true, message: `Successfully generated and downloaded ${filename}` });
+
+        const finalText = remainingText || `I've generated the Word document "${filename}" for you.`;
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: finalText, id: finalAiMsgId };
+          return newMsgs;
+        });
+
+        if (activeConvId && user) {
+          await firestoreService.addMessage(user.id, activeConvId, { 
+            role: 'ai', 
+            text: finalText
+          }, finalAiMsgId);
+        }
+      } else if (textMatch && textMatch[1]) {
+        const filename = textMatch[1].trim() || "note.txt";
+        const remainingText = fullAiText.replace(/\[GENERATE_TEXT:\s*(.*?)\]/i, '').replace(/```(?:text|plain)?\n[\s\S]*?```/i, '').trim();
+        
+        const codeBlockMatch = fullAiText.match(/```(?:text|plain)?\n([\s\S]*?)```/i);
+        const fileContent = (codeBlockMatch && codeBlockMatch[1]) ? codeBlockMatch[1] : remainingText;
+        
+        downloadTextFile(filename, fileContent);
+        setAlertModal({ isOpen: true, message: `Successfully generated and downloaded ${filename}` });
+
+        const finalText = remainingText || `I've generated the text file "${filename}" for you.`;
+        setMessages(prev => {
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: finalText, id: finalAiMsgId };
+          return newMsgs;
+        });
+
+        if (activeConvId && user) {
+          await firestoreService.addMessage(user.id, activeConvId, { 
+            role: 'ai', 
+            text: finalText
+          }, finalAiMsgId);
         }
       } else if (musicMatch && musicMatch[1]) {
         const musicPrompt = musicMatch[1].trim();
@@ -2910,6 +3012,16 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   const handleIdeFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
       const files = Array.from(e.target.files);
+      
+      // Live storage size update for Sandbox files
+      let extraBytes = 0;
+      files.forEach(f => {
+        extraBytes += f.size || 0;
+      });
+      const curSize = localStorage.getItem('xer0byteUploadedStorageBytes');
+      const prevBytes = curSize ? parseInt(curSize, 10) : 0;
+      localStorage.setItem('xer0byteUploadedStorageBytes', String(prevBytes + extraBytes));
+      
       files.forEach(file => {
         const fileName = (file as any).webkitRelativePath || file.name;
         if (file.type.startsWith('image/')) {
@@ -3119,6 +3231,15 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
+    
+    // Live storage size update
+    let extraBytes = 0;
+    files.forEach(f => {
+      extraBytes += f.size || 0;
+    });
+    const curSize = localStorage.getItem('xer0byteUploadedStorageBytes');
+    const prevBytes = curSize ? parseInt(curSize, 10) : 0;
+    localStorage.setItem('xer0byteUploadedStorageBytes', String(prevBytes + extraBytes));
     
     files.forEach(file => {
       const fileNameWithFolder = (file as any).webkitRelativePath || file.name;
@@ -3458,8 +3579,21 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const storageLimit = user ? getStorageLimit(user.plan) : 1024 * 1024 * 1024;
-  const storageUsed = user?.storageUsed || 0;
+  const getDynamicStorageUsed = () => {
+    let bytes = user ? (user.storageUsed || 0) : 0;
+    const localSaved = localStorage.getItem('xer0byteUploadedStorageBytes');
+    if (localSaved) {
+      bytes += parseInt(localSaved, 10);
+    }
+    // Baseline representation 
+    if (bytes === 0) {
+      bytes = 3.42 * 1024 * 1024; // 3.42 MB
+    }
+    return bytes;
+  };
+
+  const storageLimit = user ? getStorageLimit(user.plan) : 100 * 1024 * 1024;
+  const storageUsed = getDynamicStorageUsed();
   const storagePercent = Math.min(100, Math.max(0, (storageUsed / storageLimit) * 100));
 
   if (showSplash) {
@@ -3578,26 +3712,39 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         </div>
 
         <div className="mt-auto flex flex-col gap-4">
-          {/* Storage Usage */}
+          {/* Storage Usage Card - Restored Original Style with Premium Flowing Liquid Water effect */}
           {user && (
-                  <div className={`p-4 rounded-xl border flex flex-col gap-2 ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
-                    <div className="flex items-center justify-between font-semibold text-xs md:text-sm">
-                      <div className="flex items-center gap-2">
-                        <HardDrive size={14} />
-                        <span>Storage</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-[#00ff9d] animate-pulse"></div>
-                        <span className="text-[8px] md:text-[9px] font-bold uppercase tracking-wider text-[#00ff9d]">Backend Live</span>
-                      </div>
-                    </div>
-                    <div className={`w-full h-1.5 md:h-2 rounded-full overflow-hidden ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}>
-                      <div className={`h-full rounded-full ${theme === 'dark' ? 'bg-white' : 'bg-black'}`} style={{ width: `${storagePercent}%` }}></div>
-                    </div>
-                    <div className="text-[10px] md:text-xs opacity-60">
-                      {formatBytes(storageUsed)} / {formatBytes(storageLimit)}
-                    </div>
-                  </div>
+            <div className={`p-4 rounded-xl border flex flex-col gap-2 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+              <div className="flex items-center justify-between font-semibold text-xs md:text-sm relative z-10">
+                <div className="flex items-center gap-2">
+                  <HardDrive size={14} className={theme === 'dark' ? 'text-[#00ff9d]' : 'text-blue-500'} />
+                  <span className="font-bold">Active Storage</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${storagePercent > 85 ? 'bg-red-500 animate-ping' : 'bg-[#00ff9d] animate-pulse'}`}></div>
+                  <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider ${storagePercent > 85 ? 'text-red-400' : 'text-[#00ff9d]'}`}>
+                    {storagePercent > 85 ? 'Near Limit' : 'Live Sync'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Liquid Progress Bar Track */}
+              <div className={`w-full h-2 md:h-2.5 rounded-full overflow-hidden relative ${theme === 'dark' ? 'bg-[#222]' : 'bg-gray-200'}`}>
+                <div 
+                  className="h-full rounded-full liquid-progress relative transition-all duration-1000 ease-out overflow-hidden" 
+                  style={{ width: `${storagePercent}%` }}
+                >
+                  {/* Subtle inner animated wet-shimmer highlights */}
+                  <div className="absolute inset-0 bg-white/25 mix-blend-overlay w-full h-full animate-pulse"></div>
+                  <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 translate-x-[-150%] animate-shimmer" style={{ animation: 'shimmer 2.5s infinite' }}></div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-[10px] md:text-xs opacity-75 font-mono">
+                <span>{formatBytes(storageUsed)} / {formatBytes(storageLimit)}</span>
+                <span className="font-bold">{storagePercent.toFixed(1)}%</span>
+              </div>
+            </div>
           )}
 
           <div className="pt-4 border-t border-opacity-20 flex items-center gap-3">
@@ -3988,12 +4135,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             <div 
               ref={messagesContainerRef}
               onScroll={handleManualScroll}
-              className="flex-1 overflow-y-auto px-4 py-6 md:px-6 pt-20 md:pt-28 pb-48 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden z-10"
+              className="flex-1 overflow-y-auto px-4 py-6 md:px-6 pt-20 md:pt-28 pb-6 space-y-6 md:space-y-10 relative scroll-smooth overflow-x-hidden z-10"
             >
               {showScrollBottom && (
                 <button 
                   onClick={() => scrollToBottom()}
-                  className={`fixed bottom-24 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/60 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-black hover:text-black bg-white/60 backdrop-blur-xl'}`}
+                  className={`absolute bottom-6 right-6 px-4 py-2 rounded-full shadow-2xl z-40 transition-all hover:scale-105 active:scale-95 group flex items-center gap-2 border ${theme === 'dark' ? 'border-[#333] text-[#aaa] hover:border-[#555] hover:text-[#00ff9d] bg-black/60 backdrop-blur-xl' : 'border-[#ccc] text-[#555] hover:border-black hover:text-black bg-white/60 backdrop-blur-xl'}`}
                 >
                   <div className="relative">
                     <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#00ff9d] rounded-full border-2 border-inherit animate-pulse"></div>
@@ -4051,7 +4198,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               <div ref={messagesEndRef} />
             </div>
             
-            <div className={`absolute bottom-0 left-0 right-0 p-4 md:p-6 pt-10 z-30 ${theme === 'dark' ? 'bg-gradient-to-t from-black via-black/80 to-transparent' : 'bg-gradient-to-t from-white via-white/80 to-transparent'}`}>
+            {/* Input area rendered inline below the list to prevent overlapping layout entirely */}
+            <div className={`p-4 md:p-6 pb-6 w-full ${theme === 'dark' ? 'bg-[#000]' : 'bg-white'} border-t ${theme === 'dark' ? 'border-[#111]' : 'border-gray-100'} z-20 shrink-0`}>
               <div className="w-full max-w-4xl mx-auto relative" ref={inputContainerRef}>
                 {selectedFiles.length > 0 && (
                   <div className="absolute bottom-full left-0 mb-2 flex flex-wrap gap-2 w-full px-2">

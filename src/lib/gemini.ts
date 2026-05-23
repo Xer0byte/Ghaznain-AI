@@ -40,8 +40,8 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   const estimatedTokens = logContextSize(config);
   
   // If we're obviously over the limit, don't even try and waste quota/latency
-  if (estimatedTokens > 1200000) {
-    throw new Error("Context window full. Please start a new conversation or remove some attached files.");
+  if (estimatedTokens > 2000000) {
+    throw new Error("Context window full (approx. 2M tokens). Please start a new conversation or remove some large attached files.");
   }
 
   for (let i = 0; i < maxRetries; i++) {

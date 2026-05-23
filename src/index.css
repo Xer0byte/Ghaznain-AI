@@ -87,6 +87,82 @@
   }
 }
 
+/* Water Live Storage Wave Animations */
+@keyframes liquid-flow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.liquid-progress {
+  background: linear-gradient(90deg, #00ff9d 0%, #00d2ff 25%, #05a3ff 50%, #00ff9d 75%, #00d2ff 100%);
+  background-size: 300% 100%;
+  animation: liquid-flow 4s ease-in-out infinite;
+}
+
+.light .liquid-progress {
+  background: linear-gradient(90deg, #2563eb 0%, #60a5fa 25%, #2563eb 50%, #60a5fa 75%, #2563eb 100%);
+  background-size: 300% 100%;
+  animation: liquid-flow 4s ease-in-out infinite;
+}
+
+@keyframes wave-flow {
+  0% { transform: translate(-50%, 0) rotate(0deg); }
+  100% { transform: translate(-50%, 0) rotate(360deg); }
+}
+
+.water-container {
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.light .water-container {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.water-wave {
+  position: absolute;
+  width: 250%;
+  height: 250%;
+  background: linear-gradient(180deg, rgba(0, 255, 157, 0.25) 0%, rgba(0, 184, 255, 0.4) 100%);
+  border-radius: 40%;
+  left: 50%;
+  bottom: calc(var(--storage-percent, 0%) - 145%);
+  transform: translate(-50%, 0);
+  animation: wave-flow 12s infinite linear;
+  transition: bottom 2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  filter: blur(1px);
+}
+
+.water-wave-secondary {
+  position: absolute;
+  width: 260%;
+  height: 260%;
+  background: linear-gradient(180deg, rgba(0, 184, 255, 0.15) 0%, rgba(3, 218, 198, 0.2) 100%);
+  border-radius: 38%;
+  left: 48%;
+  bottom: calc(var(--storage-percent, 0%) - 143%);
+  transform: translate(-50%, 0);
+  animation: wave-flow 18s infinite linear;
+  transition: bottom 2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  opacity: 0.8;
+  filter: blur(0.5px);
+}
+
+.light .water-wave {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.25) 0%, rgba(37, 99, 235, 0.4) 100%);
+}
+
+.light .water-wave-secondary {
+  background: linear-gradient(180deg, rgba(147, 197, 253, 0.15) 0%, rgba(96, 165, 250, 0.2) 100%);
+}
+
 /* Fix for mobile keyboard pushing up content */
 @media (max-width: 768px) {
   .chat-input-container {

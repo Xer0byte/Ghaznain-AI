@@ -1,3 +1,7 @@
+import JSZip from 'jszip';
+import * as XLSX from 'xlsx';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
+
 export const copyToClipboard = async (text: string) => {
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -24,6 +28,78 @@ export const copyToClipboard = async (text: string) => {
     return successful;
   } catch (err) {
     console.error('Fallback copy failed', err);
+    return false;
+  }
+};
+
+/**
+ * Generates an Excel file from JSON data and triggers download.
+ */
+export const downloadExcelFile = (filename: string, data: any[]) => {
+  try {
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+    XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+    return true;
+  } catch (error) {
+    console.error("Excel generation error:", error);
+    return false;
+  }
+};
+
+/**
+ * Generates a Word (.docx) file from text content and triggers download.
+ */
+export const downloadWordFile = async (filename: string, fullText: string) => {
+  try {
+    // Split text into paragraphs
+    const lines = fullText.split('\n');
+    const sections = lines.map(line => new Paragraph({
+      children: [new TextRun(line)],
+      spacing: { after: 200 }
+    }));
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: sections,
+      }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.endsWith('.docx') ? filename : `${filename}.docx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (error) {
+    console.error("Word generation error:", error);
+    return false;
+  }
+};
+
+/**
+ * Generates a simple text file and triggers download.
+ */
+export const downloadTextFile = (filename: string, content: string) => {
+  try {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.endsWith('.txt') ? filename : `${filename}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (error) {
+    console.error("Text file generation error:", error);
     return false;
   }
 };
@@ -111,10 +187,18 @@ export const estimateTokens = (contents: any[]): number => {
       c.parts.forEach((p: any) => {
         if (p.text) count += Math.ceil(p.text.length / 4);
         if (p.inlineData?.data) {
-          // Images and files are billed differently, but for 1.5 Pro/Flash
-          // an image usually counts for about 258 tokens (standard) to 1000+ tokens
-          // Let's use a conservative estimate for base64 data
-          count += Math.ceil(p.inlineData.data.length / 4);
+          const mime = p.inlineData.mimeType || "";
+          if (mime.startsWith('image/')) {
+            // Images are roughly 258 tokens each in Gemini 1.5
+            count += 258;
+          } else if (mime === 'application/pdf') {
+            // PDFs are roughly 1000 tokens per page, or based on text
+            // Hard to know pages from base64, but let's use a fairer estimate
+            count += Math.ceil(p.inlineData.data.length / 8); 
+          } else {
+            // Text files or other data
+            count += Math.ceil(p.inlineData.data.length / 4);
+          }
         }
       });
     }
@@ -147,7 +231,7 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
         // Find if there are many code blocks and keep only the first/last parts or replace with summary
         const codeBlockCount = (text.match(/```/g) || []).length / 2;
         if (codeBlockCount > 2) {
-           text = text.replace(/```[\s\S]*?```/g, (match, offset, str) => {
+           text = text.replace(/```[\s\S]*?```/g, (match) => {
              // Keep small snippets, truncate large ones
              if (match.length > 1000) return "```\n// ... existing code truncated for context optimization ...\n```";
              return match;
@@ -157,8 +241,8 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
     }
 
     // Rough truncation for absolute safety on individual messages if they are monstrous
-    if (text.length > 40000) {
-      text = truncateText(text, 40000);
+    if (text.length > 50000) {
+      text = truncateText(text, 50000);
     }
 
     const tokens = Math.ceil(text.length / 4);
@@ -167,9 +251,37 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
     }
     
     currentEstimatedTokens += tokens;
+    
+    const parts: any[] = [{ text }];
+
+    // PRESERVE RECENT FILES: If the message had files and it's within the last 4 messages, preserve them
+    // This allows the AI to "remember" the content of files previously uploaded
+    // BUT we must be very careful with binary data size in history
+    if (msg.role === 'user' && i >= recentMessages.length - 4 && msg.files && msg.files.length > 0) {
+      msg.files.forEach((file: any) => {
+        if (file.data) {
+          const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+          // Only add if it's not too huge for history (limit to 20MB per file in history to avoid crowding out current request)
+          const MAX_HISTORY_FILE_BYTES = 20 * 1024 * 1024;
+          if (fileData.length < MAX_HISTORY_FILE_BYTES) {
+            parts.push({
+              inlineData: {
+                data: fileData,
+                mimeType: getGeminiCompatibleMimeType(file.mimeType)
+              }
+            });
+            currentEstimatedTokens += Math.ceil(fileData.length / 4);
+          } else {
+            // If too big to keep in binary history, at least keep the filename and a placeholder
+            parts[0].text += `\n[File attachment preserved in history: ${file.name} (Binary data omitted to save context)]`;
+          }
+        }
+      });
+    }
+
     history.unshift({
       role: msg.role === 'user' ? 'user' : 'model',
-      parts: [{ text }]
+      parts
     });
   }
   
