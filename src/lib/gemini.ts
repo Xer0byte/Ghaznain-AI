@@ -291,7 +291,7 @@ export async function generateMusic(prompt: string, isFullTrack: boolean = false
     const binary = atob(audioBase64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
+        bytes[i] = binary.charCodeAt(i);
     }
     const blob = new Blob([bytes], { type: mimeType });
     return URL.createObjectURL(blob);
@@ -299,4 +299,13 @@ export async function generateMusic(prompt: string, isFullTrack: boolean = false
     console.error("Music generation failed:", error);
     throw error;
   }
+}
+
+export async function enhancePrompt(promptText: string): Promise<string> {
+  const result = await generateContentWithRetry({
+    model: 'gemini-3-flash-preview',
+    contents: `Rewrite and enhance this short or low-quality prompt to be detail-rich, professional, clear, and perfectly structured for an advanced LLM. Do not ask questions or do any preamble—just return the beautifully enhanced, detailed prompt text (use markdown for tables, bullet points, and codeblocks where applicable if it helps clarify details):\n\nOriginal Prompt:\n"${promptText}"`,
+    systemInstruction: "You are an expert prompt engineer. Your job is to analyze short or simple instructions and expand them into detail-rich, clear, standard, task-oriented professional prompts. Add structure, edge cases, output format expectations, and deep contextual guidance while keeping original user intent 100% intact.",
+  });
+  return result.text || promptText;
 }

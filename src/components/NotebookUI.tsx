@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Book, Save, Trash2, Edit2, Plus, FileText, Link, MessageSquare, BookOpen, ChevronLeft, ChevronRight, Send, Sparkles, Check, Paperclip, X, Download, Share2, Info, Lightbulb, Music, Share, Copy } from 'lucide-react';
+import { Book, Save, Trash2, Edit2, Plus, FileText, Link, MessageSquare, BookOpen, ChevronLeft, ChevronRight, Send, Sparkles, Check, Paperclip, X, Download, Share2, Info, Lightbulb, Music, Share, Copy, Volume2 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import { generateContentStreamWithRetry, generateContentWithRetry } from '../lib/gemini';
 import JSZip from 'jszip';
@@ -83,6 +83,62 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   const [showGuide, setShowGuide] = useState(true);
   const [notebookSummary, setNotebookSummary] = useState('');
   
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
+  const [playbackPitch, setPlaybackPitch] = useState(true);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    const togglePlayPause = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleSeek = (value: number) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = value;
+    setCurrentTime(value);
+  };
+
+  const changePlaybackSpeed = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  };
+
+  const togglePitchPreservation = () => {
+    const newVal = !playbackPitch;
+    setPlaybackPitch(newVal);
+    if (audioRef.current && 'preservesPitch' in audioRef.current) {
+      (audioRef.current as any).preservesPitch = newVal;
+    }
+  };
+
+  const formatAudioTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
+
+  return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const isSendingRef = useRef(false);
   const lastSendTimeRef = useRef(0);
@@ -522,14 +578,80 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       });
 
       const script = scriptResponse.text || notebookSummary || "Please add more sources to generate a full overview.";
-      const audioUrl = await generateTTS(script.substring(0, 2000));
-      const audio = new Audio(audioUrl);
+      const url = await generateTTS(script.substring(0, 2000));
+      setAudioUrl(url);
+
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+
+      audio.addEventListener('loadedmetadata', () => {
+        setDuration(audio.duration);
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        setCurrentTime(audio.currentTime);
+      });
+
+      audio.addEventListener('ended', () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+      });
+
+      audio.playbackRate = playbackSpeed;
+      if ('preservesPitch' in audio) {
+        (audio as any).preservesPitch = playbackPitch;
+      }
+
       audio.play();
+      setIsPlaying(true);
     } catch (err) {
       console.error("Audio error:", err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const togglePlayPause = () => {
+    if (!audioRef.current) return;
+    if (isPlaying) {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    } else {
+      audioRef.current.play();
+      setIsPlaying(true);
+    }
+  };
+
+  const handleSeek = (value: number) => {
+    if (!audioRef.current) return;
+    audioRef.current.currentTime = value;
+    setCurrentTime(value);
+  };
+
+  const changePlaybackSpeed = (speed: number) => {
+    setPlaybackSpeed(speed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = speed;
+    }
+  };
+
+  const togglePitchPreservation = () => {
+    const newVal = !playbackPitch;
+    setPlaybackPitch(newVal);
+    if (audioRef.current && 'preservesPitch' in audioRef.current) {
+      (audioRef.current as any).preservesPitch = newVal;
+    }
+  };
+
+  const formatAudioTime = (time: number) => {
+    if (isNaN(time)) return "0:00";
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   return (
@@ -922,7 +1044,76 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                      <button className="w-full bg-white text-blue-600 py-2 rounded-xl text-xs font-bold hover:bg-opacity-90 transition-all">Extract Entity Report</button>
                   </div>
                </div>
-               <div className="p-4 border-t">
+               <div className="p-4 border-t flex flex-col gap-4">
+                  {audioUrl && (
+                    <div className={`p-4 rounded-xl border flex flex-col gap-3 ${isDark ? 'bg-black/40 border-neutral-800' : 'bg-gray-50 border-gray-200'}`}>
+                      <div className="flex items-center justify-between text-xs font-mono opacity-80">
+                        <span className="font-bold flex items-center gap-1.5 text-blue-500">
+                          <Volume2 size={14} className="animate-pulse" /> Briefing Playback
+                        </span>
+                        <span>{formatAudioTime(currentTime)} / {formatAudioTime(duration)}</span>
+                      </div>
+
+                      {/* Simulated Pulsating Waveform Visualizer */}
+                      <div className="h-10 flex items-end justify-between px-2 py-1 gap-1">
+                        {Array.from({ length: 24 }).map((_, i) => {
+                          const hBase = [20, 45, 60, 30, 80, 50, 90, 40, 75, 45, 85, 30, 20, 60, 40, 70, 55, 90, 45, 75, 30, 60, 40, 20][i];
+                          return (
+                            <div 
+                              key={i} 
+                              className={`w-1 rounded-full bg-gradient-to-t from-blue-500 to-indigo-500 transition-all duration-300`}
+                              style={{
+                                height: `${isPlaying ? Math.max(15, Math.ceil(Math.random() * hBase)) : Math.ceil(hBase * 0.3)}%`,
+                                animation: isPlaying ? `pulse 1.2s ease-in-out infinite` : undefined,
+                                animationDelay: `${i * 0.05}s`
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      {/* Seek Slider Scrub Bar */}
+                      <input 
+                        type="range" 
+                        min="0" 
+                        max={duration || "100"} 
+                        value={currentTime} 
+                        onChange={(e) => handleSeek(parseFloat(e.target.value))}
+                        className="w-full h-1 bg-neutral-700 rounded-lg appearance-none cursor-pointer accent-blue-500 outline-none" 
+                      />
+
+                      {/* Action Play/Pause & Options */}
+                      <div className="flex justify-between items-center gap-2">
+                        <button 
+                          onClick={togglePlayPause}
+                          className="flex items-center justify-center p-2.5 rounded-full bg-blue-600 text-white hover:bg-blue-500 transition-all shadow-lg active:scale-95"
+                        >
+                          {isPlaying ? (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="4" height="16"/><rect x="16" y="4" width="4" height="16"/></svg>
+                          ) : (
+                            <svg className="w-4 h-4 ml-0.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          )}
+                        </button>
+
+                        <div className="flex items-center gap-1.5 font-mono text-[9px] font-bold">
+                          <button 
+                            onClick={() => changePlaybackSpeed(playbackSpeed === 1 ? 1.25 : playbackSpeed === 1.25 ? 1.5 : playbackSpeed === 1.5 ? 2.0 : 1.0)}
+                            className={`px-2 py-1 rounded border transition-all ${isDark ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'} hover:border-blue-500/50`}
+                          >
+                            SPEED: {playbackSpeed}x
+                          </button>
+                          <button 
+                            onClick={togglePitchPreservation}
+                            className={`px-2 py-1 rounded border transition-all ${isDark ? 'bg-neutral-800 border-neutral-700' : 'bg-white border-neutral-200'} ${playbackPitch ? 'text-blue-500 border-blue-500/30' : 'text-neutral-400'}`}
+                            title="Toggle High-Fidelity Pitch Preservation"
+                          >
+                            {playbackPitch ? 'HD Voice' : 'LoFi Voice'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <button 
                     disabled={isLoading || sources.length === 0}
                     onClick={generateAudioOverview}

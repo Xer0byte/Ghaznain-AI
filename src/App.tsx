@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -20,6 +20,7 @@ import NotebookUI from './components/NotebookUI';
 import { ChatMessage } from './components/ChatMessage';
 import { WorkspaceFileTree } from './components/WorkspaceFileTree';
 import { CommandPalette } from './components/CommandPalette';
+import { DiffViewerModal } from './components/DiffViewerModal';
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -180,6 +181,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
     <div className={`w-full max-w-6xl mx-auto p-4 md:p-8 pt-20 md:pt-24 h-full flex flex-col ${theme === 'dark' ? 'text-white' : 'text-black'}`}>
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
+      
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <h2 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h2>
         <div className={`flex flex-wrap rounded-lg p-1 ${theme === 'dark' ? 'bg-[#111]' : 'bg-[#e0e0e0]'}`}>
@@ -891,6 +893,13 @@ export default function App() {
     return localStorage.getItem('xer0bytePrivateChat') === 'true';
   });
   const [inputText, setInputText] = useState('');
+  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isEnhancingIde, setIsEnhancingIde] = useState(false);
+  const [pendingCodeUpdate, setPendingCodeUpdate] = useState<{
+    oldCode: string;
+    newCode: string;
+    originalPrompt: string;
+  } | null>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(localStorage.getItem('google_access_token'));
   const [isDrivePickerLoading, setIsDrivePickerLoading] = useState(false);
   const [gapiLoaded, setGapiLoaded] = useState(false);
@@ -1026,6 +1035,122 @@ export default function App() {
     setInputText(e.target.value);
   };
 
+  const handleExportThread = (format: 'markdown' | 'html' | 'txt') => {
+    if (messages.length === 0) {
+      setAlertModal({ isOpen: true, message: "Chat thread is empty. Sparkle or say hi first!" });
+      return;
+    }
+
+    const title = currentConversationId 
+      ? (conversations.find(c => c.id === currentConversationId)?.title || 'Neural Chat') 
+      : 'Neural Chat';
+
+    let fileContent = '';
+    let mimeType = 'text/plain';
+    let fileExtension = 'txt';
+
+    if (format === 'markdown') {
+      fileContent = `# ${title}\n*Generated on Xer0byte AI - ${new Date().toLocaleDateString()}*\n\n---\n\n` + 
+        messages.map(m => `### **${m.role === 'ai' ? 'Xer0byte AI' : 'User'}**\n\n${m.text}\n\n`).join('---\n\n');
+      mimeType = 'text/markdown';
+      fileExtension = 'md';
+    } else if (format === 'html') {
+      const isDarkTheme = theme === 'dark';
+      const messagesHtml = messages.map(m => {
+        const roleName = m.role === 'ai' ? 'Xer0byte AI' : 'User';
+        const isAI = m.role === 'ai';
+        return `
+          <div class="message ${isAI ? 'ai' : 'user'}">
+            <div class="role">${roleName}</div>
+            <div class="text">${m.text ? m.text.replace(/\n/g, '<br/>') : ''}</div>
+          </div>
+        `;
+      }).join('');
+
+      fileContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${title} - Thread Export</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+              background-color: ${isDarkTheme ? '#0b0b0b' : '#fafafa'};
+              color: ${isDarkTheme ? '#e0e0e0' : '#111111'};
+              margin: 0;
+              padding: 40px 20px;
+              line-height: 1.6;
+            }
+            .container {
+              max-width: 760px;
+              margin: 0 auto;
+            }
+            h1 {
+              font-size: 24px;
+              border-bottom: 2px solid ${isDarkTheme ? '#222' : '#eee'};
+              padding-bottom: 12px;
+              margin-bottom: 6px;
+              color: ${isDarkTheme ? '#00ff9d' : '#006633'};
+            }
+            .date {
+              font-size: 11px;
+              opacity: 0.6;
+              margin-bottom: 40px;
+            }
+            .message {
+              margin-bottom: 30px;
+              padding: 20px;
+              border-radius: 16px;
+              border: 1px solid ${isDarkTheme ? '#222' : '#eee'};
+              background-color: ${isDarkTheme ? '#121212' : '#ffffff'};
+            }
+            .ai {
+              background-color: ${isDarkTheme ? '#141c18' : '#f0faf5'};
+              border-color: ${isDarkTheme ? 'rgba(0,255,157,0.15)' : 'rgba(0,102,51,0.1)'};
+            }
+            .role {
+              font-weight: bold;
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              margin-bottom: 10px;
+              color: ${isDarkTheme ? '#00ff9d' : '#006633'};
+            }
+            .text {
+              font-size: 15px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>${title}</h1>
+            <div class="date">Exported from Xer0byte AI Workspace on ${new Date().toLocaleString()}</div>
+            ${messagesHtml}
+          </div>
+        </body>
+        </html>
+      `;
+      mimeType = 'text/html';
+      fileExtension = 'html';
+    } else {
+      fileContent = `${title}\nExported on ${new Date().toLocaleString()}\n\n` + 
+        messages.map(m => `${m.role === 'ai' ? 'Xer0byte AI' : 'User'}:\n${m.text}\n\n`).join('\n');
+      mimeType = 'text/plain';
+      fileExtension = 'txt';
+    }
+
+    const blob = new Blob([fileContent], { type: `${mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}_export.${fileExtension}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const [isFetching, setIsFetching] = useState(true);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
@@ -1049,6 +1174,43 @@ export default function App() {
   const [isThinkingIde, setIsThinkingIde] = useState(false);
   const [ideSelectedFiles, setIdeSelectedFiles] = useState<{data: string, mimeType: string, name: string}[]>([]);
   const [isListeningIde, setIsListeningIde] = useState(false);
+  
+  const activeTokenCount = useMemo(() => {
+    let textLength = 0;
+    messages.forEach(m => {
+      if (m.text) textLength += m.text.length;
+    });
+    ideMessages.forEach(m => {
+      if (m.text) textLength += m.text.length;
+    });
+    let count = Math.ceil(textLength / 4);
+    
+    selectedFiles.forEach(file => {
+      if (file.data) {
+        if (file.mimeType?.startsWith('image/')) {
+          count += 258;
+        } else {
+          count += Math.ceil(file.data.length / 4);
+        }
+      }
+    });
+    
+    ideSelectedFiles.forEach(file => {
+      if (file.data) {
+        if (file.mimeType?.startsWith('image/')) {
+          count += 258;
+        } else {
+          count += Math.ceil(file.data.length / 4);
+        }
+      }
+    });
+    
+    return count;
+  }, [messages, ideMessages, selectedFiles, ideSelectedFiles]);
+
+  const tokenLimit = 2000000;
+  const tokenPercent = Math.min((activeTokenCount / tokenLimit) * 100, 100);
+
   const [showIdeHistory, setShowIdeHistory] = useState(false);
   const ideFileInputRef = useRef<HTMLInputElement>(null);
   const ideFolderInputRef = useRef<HTMLInputElement>(null);
@@ -1828,8 +1990,18 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       if (codeMatch && codeMatch[1]) {
         const newCode = codeMatch[1].trim();
-        setCanvasContent(newCode);
-        setCanvasHistory(prev => [{ prompt: originalPrompt, code: newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+        if (canvasContent && canvasContent.trim()) {
+          // Trigger Sandboxed Code Split-Diff Viewer
+          setPendingCodeUpdate({
+            oldCode: canvasContent,
+            newCode,
+            originalPrompt
+          });
+        } else {
+          // No current file content - just save it directly
+          setCanvasContent(newCode);
+          setCanvasHistory(prev => [{ prompt: originalPrompt, code: newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+        }
       }
 
     } catch (error: any) {
@@ -3633,6 +3805,26 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
 
+      {/* Code Split-Diff Preview Modal */}
+      {pendingCodeUpdate && (
+        <DiffViewerModal
+          isOpen={!!pendingCodeUpdate}
+          oldCode={pendingCodeUpdate.oldCode}
+          newCode={pendingCodeUpdate.newCode}
+          originalPrompt={pendingCodeUpdate.originalPrompt}
+          theme={theme}
+          onAccept={() => {
+            setCanvasContent(pendingCodeUpdate.newCode);
+            setCanvasHistory(prev => [{ prompt: pendingCodeUpdate.originalPrompt, code: pendingCodeUpdate.newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+            setPendingCodeUpdate(null);
+            setAlertModal({ isOpen: true, message: "Code Upgrades applied and merged successfully into the active workspace!" });
+          }}
+          onReject={() => {
+            setPendingCodeUpdate(null);
+          }}
+        />
+      )}
+
       <CommandPalette 
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
@@ -3777,6 +3969,50 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         )}
 
         <div className="mt-auto flex flex-col gap-4">
+          {/* Neural Context Gauge - Beautiful Circle Neon Design */}
+          {user && (
+            <div className={`p-4 rounded-xl border flex items-center gap-4 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+              <div className="relative flex items-center justify-center w-12 h-12 shrink-0 transition-transform group-hover:scale-105 duration-300">
+                <svg className="w-full h-full transform -rotate-90">
+                  <circle cx="24" cy="24" r="21" className={theme === 'dark' ? 'stroke-neutral-800' : 'stroke-neutral-200'} strokeWidth="4.5" fill="transparent" />
+                  <circle 
+                    cx="24" 
+                    cy="24" 
+                    r="21" 
+                    className={`transition-all duration-1000 ease-out ${
+                      tokenPercent > 85 ? 'stroke-red-500' : tokenPercent > 50 ? 'stroke-amber-400' : 'stroke-cyan-400'
+                    }`} 
+                    strokeWidth="4.5" 
+                    strokeDasharray={132} 
+                    strokeDashoffset={132 - (tokenPercent / 100) * 132} 
+                    strokeLinecap="round"
+                    fill="transparent" 
+                    style={{
+                      filter: tokenPercent > 85 ? 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.6))' : 'drop-shadow(0 0 4px rgba(34, 211, 238, 0.6))'
+                    }}
+                  />
+                </svg>
+                <div className="absolute font-mono text-[9px] font-black tracking-tighter">
+                  {tokenPercent.toFixed(0)}%
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col gap-0.5">
+                <div className="flex items-center justify-between font-semibold text-xs relative z-10">
+                  <span className="font-bold text-[10px] uppercase tracking-wider text-neutral-400">Context Window</span>
+                  <div className={`w-1.5 h-1.5 rounded-full ${tokenPercent > 85 ? 'bg-red-500 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></div>
+                </div>
+                <div className="font-mono text-xs font-bold leading-tight">
+                  {activeTokenCount >= 1000000 
+                    ? `${(activeTokenCount / 1000000).toFixed(2)}M` 
+                    : `${(activeTokenCount / 1000).toFixed(1)}K`
+                  } <span className="text-neutral-500 font-normal">/ 2M tokens</span>
+                </div>
+                <p className="text-[9px] opacity-60 leading-normal">Real-time active memory.</p>
+              </div>
+            </div>
+          )}
+
           {/* Storage Usage Card - Restored Original Style with Premium Flowing Liquid Water effect */}
           {user && (
             <div className={`p-4 rounded-xl border flex flex-col gap-2 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
@@ -4123,6 +4359,32 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 py-3 resize-none max-h-40 min-w-0 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
                 />
                 <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end">
+                  {/* Smart Sparkle Prompt Enhancer */}
+                  <button
+                    onClick={async (e) => {
+                      e.preventDefault();
+                      if (!inputText.trim()) {
+                        setAlertModal({ isOpen: true, message: "Type a short prompt first, then click Sparkle to rewrite it into a professional, dense prompt!" });
+                        return;
+                      }
+                      setIsEnhancing(true);
+                      try {
+                        const { enhancePrompt } = await import('./lib/gemini');
+                        const enhancedText = await enhancePrompt(inputText);
+                        setInputText(enhancedText);
+                      } catch (err) {
+                        console.error(err);
+                      } finally {
+                        setIsEnhancing(false);
+                      }
+                    }}
+                    disabled={isEnhancing}
+                    title="Smart Sparkle Prompt Enhancer"
+                    className={`p-1.5 md:p-2 rounded-full relative transition-all ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isEnhancing ? 'text-[#00ff9d] animate-pulse' : 'text-blue-500 hover:text-blue-600'}`}
+                  >
+                    <Sparkles size={18} className={isEnhancing ? "animate-spin" : "animate-pulse duration-1000"} />
+                  </button>
+
                   <div className="relative">
                     <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
                       <Mic size={18} />
@@ -4183,12 +4445,51 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </h2>
                 {isPrivateChat && <span className="bg-[#00ff9d]/10 text-[#00ff9d] text-[9px] px-2 py-0.5 rounded border border-[#00ff9d]/20 font-bold uppercase tracking-wider shrink-0">Private</span>}
               </div>
-              <button 
-                onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); }}
-                className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl border transition-all flex items-center gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'bg-white text-black border-transparent hover:bg-[#00ff9d]' : 'bg-black text-white border-transparent hover:bg-gray-800'}`}
-              >
-                <Plus size={14} strokeWidth={3} /> <span className="hidden xs:inline">New Message</span>
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Export Dropdown */}
+                <div className="relative group/export">
+                  <button 
+                    className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl border transition-all flex items-center gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'bg-[#111] border-[#222] text-[#00ff9d] hover:bg-white/5' : 'bg-gray-50 border-gray-200 text-black hover:bg-gray-100'}`}
+                  >
+                    <Download size={14} /> <span className="hidden sm:inline">Export Thread</span>
+                  </button>
+                  {/* Dropdown menu */}
+                  <div className={`absolute right-0 top-full mt-2 w-48 rounded-2xl border shadow-2xl py-2 z-[100] hidden group-hover/export:block hover:block ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                    <div className="px-4 py-1.5 text-[9px] font-bold text-[#888] uppercase tracking-wider">Download Chat</div>
+                    
+                    <button 
+                      onClick={() => handleExportThread('markdown')} 
+                      className={`w-full px-4 py-2 cursor-pointer text-left flex items-center gap-2.5 hover:bg-blue-500/15 text-xs font-medium`}
+                    >
+                      <span className="w-1.5 h-1.5 bg-[#00ff9d] rounded-full"></span>
+                      Markdown (.md)
+                    </button>
+                    
+                    <button 
+                      onClick={() => handleExportThread('html')} 
+                      className={`w-full px-4 py-2 cursor-pointer text-left flex items-center gap-2.5 hover:bg-blue-500/15 text-xs font-medium`}
+                    >
+                      <span className="w-1.5 h-1.5 bg-[#00ff9d] rounded-full"></span>
+                      HTML Document (.html)
+                    </button>
+                    
+                    <button 
+                      onClick={() => handleExportThread('txt')} 
+                      className={`w-full px-4 py-2 cursor-pointer text-left flex items-center gap-2.5 hover:bg-blue-500/15 text-xs font-medium`}
+                    >
+                      <span className="w-1.5 h-1.5 bg-[#00ff9d] rounded-full"></span>
+                      Plain Text (.txt)
+                    </button>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); }}
+                  className={`px-3 py-1.5 md:px-4 md:py-2 rounded-xl border transition-all flex items-center gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest ${theme === 'dark' ? 'bg-white text-black border-transparent hover:bg-[#00ff9d]' : 'bg-black text-white border-transparent hover:bg-gray-800'}`}
+                >
+                  <Plus size={14} strokeWidth={3} /> <span className="hidden xs:inline">New Message</span>
+                </button>
+              </div>
             </div>
 
             {isPrivateChat && (
@@ -5467,6 +5768,32 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             Cancel
                           </button>
                         )}
+                        {/* Smart Sparkle IDE Prompt Enhancer */}
+                        <button
+                          onClick={async (e) => {
+                            e.preventDefault();
+                            if (!idePrompt.trim()) {
+                              setAlertModal({ isOpen: true, message: "Type a short prompt first, then click Sparkle to rewrite it into a professional, dense prompt!" });
+                              return;
+                            }
+                            setIsEnhancingIde(true);
+                            try {
+                              const { enhancePrompt } = await import('./lib/gemini');
+                              const enhancedText = await enhancePrompt(idePrompt);
+                              setIdePrompt(enhancedText);
+                            } catch (err) {
+                              console.error(err);
+                            } finally {
+                              setIsEnhancingIde(false);
+                            }
+                          }}
+                          disabled={isEnhancingIde}
+                          title="Smart Sparkle Prompt Enhancer"
+                          className={`p-2 rounded-full relative transition-all ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isEnhancingIde ? 'text-[#00ff9d] animate-pulse' : 'text-blue-500 hover:text-blue-600'}`}
+                        >
+                          <Sparkles size={20} className={isEnhancingIde ? "animate-spin" : "animate-pulse duration-1000"} />
+                        </button>
+
                         <button onClick={startListeningIde} className={`p-2 rounded-full transition-colors ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListeningIde ? 'text-red-500 animate-pulse' : ''}`}>
                           <Mic size={20} />
                         </button>
