@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -21,6 +21,8 @@ import { ChatMessage } from './components/ChatMessage';
 import { WorkspaceFileTree } from './components/WorkspaceFileTree';
 import { CommandPalette } from './components/CommandPalette';
 import { DiffViewerModal } from './components/DiffViewerModal';
+import { VoiceWaveVisualizer } from './components/VoiceWaveVisualizer';
+import { STARTER_TEMPLATES } from './lib/templates';
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
   <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -183,7 +185,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
       
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <h2 className="text-2xl md:text-3xl font-bold">Admin Dashboard</h2>
+        <h2 className="fluid-title font-bold">Admin Dashboard</h2>
         <div className={`flex flex-wrap rounded-lg p-1 ${theme === 'dark' ? 'bg-[#111]' : 'bg-[#e0e0e0]'}`}>
           <button onClick={() => setActiveTab('overview')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'overview' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Overview</button>
           <button onClick={() => setActiveTab('accounts')} className={`px-3 md:px-4 py-1.5 md:py-2 rounded-md text-xs md:text-sm font-medium transition-colors ${activeTab === 'accounts' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-white text-black shadow-sm') : 'opacity-60 hover:opacity-100'}`}>Accounts</button>
@@ -1174,6 +1176,8 @@ export default function App() {
   const [isThinkingIde, setIsThinkingIde] = useState(false);
   const [ideSelectedFiles, setIdeSelectedFiles] = useState<{data: string, mimeType: string, name: string}[]>([]);
   const [isListeningIde, setIsListeningIde] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'pinned' | 'archived'>('all');
+  const [isTemplateDropdownOpen, setIsTemplateDropdownOpen] = useState(false);
   
   const activeTokenCount = useMemo(() => {
     let textLength = 0;
@@ -2033,6 +2037,20 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       setActiveConvMenu(null);
     } catch (error) {
       console.error("Failed to pin conversation:", error);
+    }
+  };
+
+  const handleArchiveConv = async (id: string, isArchived: boolean) => {
+    if (!user) return;
+    try {
+      await firestoreService.updateConversation(user.id, id, { isArchived: !isArchived });
+      setActiveConvMenu(null);
+      setAlertModal({ 
+        isOpen: true, 
+        message: isArchived ? "Session unarchived!" : "Session archived!" 
+      });
+    } catch (error) {
+      console.error("Failed to archive conversation:", error);
     }
   };
 
@@ -3794,7 +3812,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   }
 
   return (
-    <div className={`flex flex-col h-screen overflow-hidden transition-colors duration-700 relative ${theme === 'dark' ? 'bg-[#0a0a0a] text-white' : 'bg-[#f5f5f5] text-black'} selection:bg-blue-500 selection:text-white`}>
+    <div className={`flex flex-col h-screen [@supports(height:100dvh)]:h-[100dvh] overflow-hidden transition-colors duration-700 relative ${theme === 'dark' ? 'bg-[#0a0a0a] text-white' : 'bg-[#f5f5f5] text-black'} selection:bg-blue-500 selection:text-white`}>
       {/* Background Enhancements */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden opacity-50">
         <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px]"></div>
@@ -3874,7 +3892,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen flex flex-col p-4 z-50 border-r backdrop-blur-md transition-all duration-300 ease-in-out shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
+      <aside className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen [@supports(height:100dvh)]:h-[100dvh] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-all duration-300 ease-in-out shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
         <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
           <Search size={18} />
           <input 
@@ -4110,7 +4128,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         <div className="absolute top-4 left-4 z-40">
           <button 
             onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-            className={`p-2 rounded-xl transition-all shadow-sm flex items-center justify-center ${theme === 'dark' ? 'bg-[#111] text-[#888] hover:bg-[#222] hover:text-white border border-[#222]' : 'bg-white text-[#555] hover:bg-[#f0f0f0] hover:text-black border border-[#ddd]'}`}
+            className={`w-11 h-11 rounded-xl transition-all shadow-sm flex items-center justify-center ${theme === 'dark' ? 'bg-[#111] text-[#888] hover:bg-[#222] hover:text-white border border-[#222]' : 'bg-white text-[#555] hover:bg-[#f0f0f0] hover:text-black border border-[#ddd]'}`}
             title="Toggle Sidebar"
           >
             <Menu size={20} />
@@ -4152,9 +4170,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         )}
 
         {view === 'home' && (
-          <div className="text-center max-w-[800px] w-full px-6 flex flex-col items-center relative z-10 transition-all duration-1000 animate-in fade-in slide-in-from-bottom-8">
-            <h1 className={`text-[48px] sm:text-[100px] md:text-[140px] font-black tracking-tighter mb-4 md:mb-10 transition-all duration-500 cursor-default ${theme === 'dark' ? 'text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]' : 'text-black drop-shadow-[0_0_40px_rgba(0,0,0,0.1)] hover:drop-shadow-[0_0_60px_rgba(0,0,0,0.4)]'}`}>Xer0byte</h1>
-            <p className={`text-[18px] md:text-[26px] mb-8 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
+          <div className="text-center max-w-[800px] w-full px-4 sm:px-6 md:px-8 flex flex-col items-center relative z-10 transition-all duration-1000 animate-in fade-in slide-in-from-bottom-8">
+            <h1 className={`fluid-heading-hero font-black tracking-tighter mb-4 md:mb-10 transition-all duration-500 cursor-default ${theme === 'dark' ? 'text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.15)] hover:drop-shadow-[0_0_60px_rgba(255,255,255,0.6)]' : 'text-black drop-shadow-[0_0_40px_rgba(0,0,0,0.1)] hover:drop-shadow-[0_0_60px_rgba(0,0,0,0.4)]'}`}>Xer0byte</h1>
+            <p className={`fluid-subheading-hero font-medium mb-8 md:mb-14 ${theme === 'dark' ? 'text-[#bbb]' : 'text-[#555]'}`}>What's on your mind?</p>
             
             <div className="w-full max-w-3xl mx-auto mb-10 relative" ref={inputContainerRef}>
               {selectedFiles.length > 0 && (
@@ -4183,9 +4201,14 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   ))}
                 </div>
               )}
-              <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+              <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+                {isListening && (
+                  <div className="absolute inset-x-1 inset-y-1.5 z-50 flex items-center justify-center bg-black/60 dark:bg-[#161616]/75 backdrop-blur-md rounded-xl select-none">
+                    <VoiceWaveVisualizer theme={theme} />
+                  </div>
+                )}
                 <div className="relative flex items-center mb-1">
-                  <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors">
+                  <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
                     <Plus size={20} />
                   </div>
                   {fileMenuOpen && (
@@ -4202,8 +4225,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     </div>
                   )}
                   
-                  <div className="relative">
-                    <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
+                  <div className="relative flex items-center">
+                    <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-3 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                       <Wrench size={16} /> Tools
                     </button>
                     {isToolsMenuOpen && (
@@ -4245,8 +4268,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </div>
                 </div>
                 
-                <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-end">
-                  <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
+                <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-center md:self-end">
+                  <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3.5 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                     {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
                   </button>
                   {isModelMenuOpen && (
@@ -4380,13 +4403,13 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     }}
                     disabled={isEnhancing}
                     title="Smart Sparkle Prompt Enhancer"
-                    className={`p-1.5 md:p-2 rounded-full relative transition-all ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isEnhancing ? 'text-[#00ff9d] animate-pulse' : 'text-blue-500 hover:text-blue-600'}`}
+                    className={`w-11 h-11 flex items-center justify-center rounded-full shrink-0 relative transition-all ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isEnhancing ? 'text-[#00ff9d] animate-pulse' : 'text-blue-500 hover:text-blue-600'}`}
                   >
                     <Sparkles size={18} className={isEnhancing ? "animate-spin" : "animate-pulse duration-1000"} />
                   </button>
 
                   <div className="relative">
-                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-1.5 md:p-2 rounded-full ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
+                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-full shrink-0 ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
                       <Mic size={18} />
                     </button>
                     {isMicMenuOpen && !isListening && (
@@ -4408,7 +4431,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   <button 
                     onClick={() => handleSend()}
                     disabled={(!inputText.trim() && selectedFiles.length === 0) || isThinking}
-                    className={`p-2.5 rounded-xl flex items-center justify-center transition-all shadow-2xl active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white hover:neural-glow' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-white/5 text-white/20' : 'bg-gray-100 text-gray-300')}`}
+                    className={`w-11 h-11 flex items-center justify-center rounded-xl shrink-0 transition-all shadow-2xl active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white hover:neural-glow' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-white/5 text-white/20' : 'bg-gray-100 text-gray-300')}`}
                   >
                     <Send size={20} strokeWidth={2.5} />
                   </button>
@@ -4596,21 +4619,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 )}
                 <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
                   {isListening && (
-                    <div className="absolute inset-y-1.5 left-24 right-1.5 z-50 flex items-center bg-transparent backdrop-blur-[0.5px] pointer-events-none">
-                      <div className={`flex items-center gap-1.5 px-4 py-2 rounded-full border shadow-lg shadow-black/10 ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333]' : 'bg-white border-[#ddd]'}`}>
-                        <div className="flex items-center gap-1 text-red-500">
-                          <span className="w-1.5 h-3 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0s', animationDuration: '0.6s' }}></span>
-                          <span className="w-1.5 h-6 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.4s' }}></span>
-                          <span className="w-1.5 h-4 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.5s' }}></span>
-                          <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.3s', animationDuration: '0.3s' }}></span>
-                          <span className="w-1.5 h-2 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s', animationDuration: '0.6s' }}></span>
-                        </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] leading-none">Voice Active... Speak Now</span>
-                      </div>
+                    <div className="absolute inset-x-1 inset-y-1.5 z-50 flex items-center justify-center bg-black/60 dark:bg-[#161616]/75 backdrop-blur-md rounded-xl select-none">
+                      <VoiceWaveVisualizer theme={theme} />
                     </div>
                   )}
                   <div className="relative flex items-center mb-1">
-                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="pl-3 md:pl-4 pr-1 md:pr-2 text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
+                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
                       <Plus size={20} />
                     </div>
                     {fileMenuOpen && (
@@ -4627,8 +4641,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       </div>
                     )}
                     
-                    <div className="relative">
-                      <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-2 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
+                    <div className="relative flex items-center">
+                      <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-3 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                         <Wrench size={16} /> Tools
                       </button>
                       {isToolsMenuOpen && (
@@ -4671,7 +4685,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </div>
                   
                   <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-center md:self-end">
-                    <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
+                    <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3.5 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
                       {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
                     </button>
                     {isModelMenuOpen && (
@@ -4793,7 +4807,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </button>
                       )}
                       <div className="relative">
-                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`p-2.5 rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`}>
+                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`}>
                         <Mic size={20} strokeWidth={2.5} />
                       </button>
                       {isMicMenuOpen && !isListening && (
@@ -4828,7 +4842,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     <button 
                       onClick={() => handleSend()}
                       disabled={(!inputText.trim() && selectedFiles.length === 0) || isThinking}
-                      className={`p-2.5 rounded-xl flex items-center justify-center transition-all shadow-lg active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-[#333] text-[#666]' : 'bg-[#ddd] text-[#999]')}`}
+                      className={`w-11 h-11 flex items-center justify-center rounded-xl shrink-0 transition-all shadow-lg active:scale-95 ${(inputText.trim() || selectedFiles.length > 0) && !isThinking ? (theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800') : (theme === 'dark' ? 'bg-[#333] text-[#666]' : 'bg-[#ddd] text-[#999]')}`}
                     >
                       <Send size={18} />
                     </button>
@@ -4841,14 +4855,14 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
         {view === 'history' && (
           <div className="w-full max-w-4xl mx-auto p-4 md:p-8 pt-20 md:pt-24 h-full overflow-y-auto">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 md:mb-8">
-              <h2 className="text-2xl md:text-3xl font-bold">History</h2>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+              <h2 className="fluid-title font-bold">History</h2>
               <div className="flex items-center gap-2">
                 <div className={`flex items-center px-3 py-2 rounded-xl border ${theme === 'dark' ? 'bg-[#111] border-[#333]' : 'bg-white border-[#ddd]'}`}>
                   <Search size={16} className="opacity-50 mr-2" />
                   <input
                     type="text"
-                    placeholder="Search by name or date..."
+                    placeholder="Search query..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-transparent border-none outline-none text-sm w-full md:w-64"
@@ -4863,141 +4877,200 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </button>
               </div>
             </div>
+
+            {/* Conversation view filters */}
+            <div className={`flex border-b mb-6 sm:mb-8 text-xs sm:text-sm font-bold tracking-wider uppercase ${theme === 'dark' ? 'border-[#222]' : 'border-[#ddd]'}`}>
+              {(['all', 'pinned', 'archived'] as const).map((filter) => {
+                const isActive = historyFilter === filter;
+                return (
+                  <button
+                    key={filter}
+                    onClick={() => setHistoryFilter(filter)}
+                    className={`relative py-3 px-4 transition-all duration-300 ${
+                      isActive 
+                        ? (theme === 'dark' ? 'text-[#00ff9d]' : 'text-emerald-600') 
+                        : 'opacity-50 hover:opacity-100'
+                    }`}
+                  >
+                    <span>
+                      {filter === 'all' ? 'All Sessions' : filter === 'pinned' ? 'Pinned 📌' : 'Archived 📦'}
+                    </span>
+                    {isActive && (
+                      <motion.div 
+                        layoutId="activeHistoryUnderline" 
+                        className={`absolute bottom-0 left-0 right-0 h-[2px] ${theme === 'dark' ? 'bg-[#00ff9d]' : 'bg-emerald-600'}`} 
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
             
             {(() => {
               const filteredConvs = conversations.filter((c: any) => {
                 const searchLower = searchQuery.toLowerCase();
                 const titleMatch = c.title.toLowerCase().includes(searchLower);
-              const dateObj = c.updatedAt?.seconds ? new Date(c.updatedAt.seconds * 1000) : (c.createdAt?.seconds ? new Date(c.createdAt.seconds * 1000) : new Date(c.created_at || c.updated_at || c.createdAt || c.updatedAt || Date.now()));
+                const dateObj = c.updatedAt?.seconds ? new Date(c.updatedAt.seconds * 1000) : (c.createdAt?.seconds ? new Date(c.createdAt.seconds * 1000) : new Date(c.created_at || c.updated_at || c.createdAt || c.updatedAt || Date.now()));
                 const dateMatch = dateObj.toLocaleDateString().includes(searchLower);
-                return titleMatch || dateMatch;
+                if (!(titleMatch || dateMatch)) return false;
+
+                if (historyFilter === 'pinned') {
+                  return c.isPinned && !c.isArchived;
+                }
+                if (historyFilter === 'archived') {
+                  return c.isArchived;
+                }
+                return !c.isArchived;
               });
 
               if (filteredConvs.length === 0) {
-                return <div className="text-center opacity-50 mt-20">No past conversations found.</div>;
+                return <div className="text-center opacity-50 mt-20">No past conversations matching the active filter found.</div>;
               }
 
-              const grouped = groupConversationsByDate(filteredConvs);
+              const renderHistoryItem = (conv: any) => (
+                <div 
+                  key={conv.id} 
+                  className={`p-3 md:p-4 rounded-xl md:rounded-2xl border transition-all relative group ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] hover:border-[#555]' : 'bg-white border-[#ddd] hover:border-[#999]'}`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div 
+                      className="flex-1 cursor-pointer"
+                      onClick={() => { setCurrentConversationId(conv.id); setIsPrivateChat(false); setView('chat'); }}
+                    >
+                      {editingConvId === conv.id ? (
+                        <input 
+                          type="text" 
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameConv(conv.id, editingTitle);
+                            if (e.key === 'Escape') setEditingConvId(null);
+                          }}
+                          onBlur={() => handleRenameConv(conv.id, editingTitle)}
+                          autoFocus
+                          className={`w-full bg-transparent border-b outline-none text-base md:text-lg mb-1 ${theme === 'dark' ? 'border-white/20 text-white' : 'border-black/20 text-black'}`}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="font-medium text-base md:text-lg mb-1 flex items-center flex-wrap gap-2">
+                          {conv.isPinned && <Pin size={14} className="text-[#00ff9d] fill-current" />}
+                          {conv.title}
+                          {(() => {
+                            const lowerTitle = conv.title.toLowerCase();
+                            const isSandbox = lowerTitle.includes('sandbox') || lowerTitle.includes('execute');
+                            const isPic = lowerTitle.includes('generate image') || lowerTitle.includes('imagine') || lowerTitle.includes('pic gen');
+
+                            if (isSandbox) return (
+                              <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]">
+                                Sandbox AI
+                              </span>
+                            );
+                            if (isPic) return (
+                              <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                                Pic Gen
+                              </span>
+                            );
+                            return null;
+                          })()}
+                        </div>
+                      )}
+                      <div className="text-xs opacity-50">
+                        {(() => {
+                          const ts = conv.updatedAt?.seconds ? conv.updatedAt : (conv.createdAt?.seconds ? conv.createdAt : null);
+                          const d = ts ? new Date(ts.seconds * 1000) : new Date(conv.created_at || conv.updated_at || conv.createdAt || conv.updatedAt || Date.now());
+                          return d.toLocaleString();
+                        })()}
+                      </div>
+                    </div>
+                    
+                    <div className="relative">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setActiveConvMenu(activeConvMenu === conv.id ? null : conv.id); }}
+                        className={`p-1.5 rounded-lg opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#eee]'}`}
+                      >
+                        <MoreVertical size={18} />
+                      </button>
+                      
+                      {activeConvMenu === conv.id && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setActiveConvMenu(null); setDeleteConfirmId(null); }}></div>
+                          <div className={`absolute right-0 top-8 w-48 rounded-xl border shadow-2xl py-1 z-20 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+                            {deleteConfirmId === conv.id ? (
+                              <div className="px-3 py-2">
+                                <div className="text-sm mb-2 text-center">Are you sure?</div>
+                                <div className="flex gap-2">
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
+                                    className="flex-1 py-1 rounded text-xs bg-gray-500/20 hover:bg-gray-500/30 transition-colors"
+                                  >Cancel</button>
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteConv(conv.id); }}
+                                    className="flex-1 py-1 rounded text-xs bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-colors"
+                                  >Delete</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div 
+                                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                                  onClick={(e) => { e.stopPropagation(); setEditingConvId(conv.id); setEditingTitle(conv.title); setActiveConvMenu(null); }}
+                                >
+                                  <Edit2 size={14} /> Rename
+                                </div>
+                                <div 
+                                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                                  onClick={(e) => { e.stopPropagation(); handlePinConv(conv.id, !!conv.isPinned); setActiveConvMenu(null); }}
+                                >
+                                  <Pin size={14} /> {conv.isPinned ? 'Unpin' : 'Pin'}
+                                </div>
+                                <div 
+                                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                                  onClick={(e) => { e.stopPropagation(); handleArchiveConv(conv.id, !!conv.isArchived); setActiveConvMenu(null); }}
+                                >
+                                  <Archive size={14} /> {conv.isArchived ? 'Unarchive' : 'Archive'}
+                                </div>
+                                <div 
+                                  className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
+                                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(conv.id); }}
+                                >
+                                  <Trash2 size={14} /> Delete
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+
+              // Extract pinned cards separately when in the All filter
+              const pinnedConvs = historyFilter === 'all' ? filteredConvs.filter((c: any) => c.isPinned) : [];
+              const unpinnedConvs = historyFilter === 'all' ? filteredConvs.filter((c: any) => !c.isPinned) : filteredConvs;
+
+              const groupedByDate = groupConversationsByDate(unpinnedConvs);
 
               return (
                 <div className="space-y-8">
-                  {Object.entries(grouped).map(([groupName, groupConvs]) => {
+                  {pinnedConvs.length > 0 && (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 text-xs font-black text-[#00ff9d] uppercase tracking-[0.2em] bg-emerald-500/10 border border-emerald-500/25 px-3 py-2 rounded-xl w-max">
+                        <Pin size={12} className="fill-current animate-bounce" /> Pinned Workspace Sessions
+                      </div>
+                      <div className="grid grid-cols-1 gap-4">
+                        {pinnedConvs.map(conv => renderHistoryItem(conv))}
+                      </div>
+                    </div>
+                  )}
+
+                  {Object.entries(groupedByDate).map(([groupName, groupConvs]) => {
                     if (groupConvs.length === 0) return null;
                     return (
-                      <div key={groupName}>
-                        <h3 className="text-sm font-bold opacity-50 uppercase tracking-wider mb-3">{groupName}</h3>
-                        <div className="space-y-3 md:space-y-4">
-                          {groupConvs.map(conv => (
-                            <div 
-                              key={conv.id} 
-                              className={`p-3 md:p-4 rounded-xl md:rounded-2xl border transition-all relative group ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] hover:border-[#555]' : 'bg-white border-[#ddd] hover:border-[#999]'}`}
-                            >
-                              <div className="flex items-start justify-between gap-4">
-                                <div 
-                                  className="flex-1 cursor-pointer"
-                                  onClick={() => { setCurrentConversationId(conv.id); setIsPrivateChat(false); setView('chat'); }}
-                                >
-                                  {editingConvId === conv.id ? (
-                                    <input 
-                                      type="text" 
-                                      value={editingTitle}
-                                      onChange={(e) => setEditingTitle(e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') handleRenameConv(conv.id, editingTitle);
-                                        if (e.key === 'Escape') setEditingConvId(null);
-                                      }}
-                                      onBlur={() => handleRenameConv(conv.id, editingTitle)}
-                                      autoFocus
-                                      className={`w-full bg-transparent border-b outline-none text-base md:text-lg mb-1 ${theme === 'dark' ? 'border-white/20 text-white' : 'border-black/20 text-black'}`}
-                                      onClick={(e) => e.stopPropagation()}
-                                    />
-                                  ) : (
-                                    <div className="font-medium text-base md:text-lg mb-1 flex items-center flex-wrap gap-2">
-                                      {conv.isPinned && <Pin size={14} className="text-[#00ff9d] fill-current" />}
-                                      {conv.title}
-                                      {(() => {
-                                        const lowerTitle = conv.title.toLowerCase();
-                                        const isSandbox = lowerTitle.includes('sandbox') || lowerTitle.includes('execute');
-                                        const isPic = lowerTitle.includes('generate image') || lowerTitle.includes('imagine') || lowerTitle.includes('pic gen');
-
-                                        if (isSandbox) return (
-                                          <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-purple-500/30 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]">
-                                            Sandbox AI
-                                          </span>
-                                        );
-                                        if (isPic) return (
-                                          <span className="text-[9px] font-black uppercase tracking-[0.2em] bg-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
-                                            Pic Gen
-                                          </span>
-                                        );
-                                        return null;
-                                      })()}
-                                    </div>
-                                  )}
-                                  <div className="text-xs opacity-50">
-                                    {(() => {
-                                      const ts = conv.updatedAt?.seconds ? conv.updatedAt : (conv.createdAt?.seconds ? conv.createdAt : null);
-                                      const d = ts ? new Date(ts.seconds * 1000) : new Date(conv.created_at || conv.updated_at || conv.createdAt || conv.updatedAt || Date.now());
-                                      return d.toLocaleString();
-                                    })()}
-                                  </div>
-                                </div>
-                                
-                                <div className="relative">
-                                  <button 
-                                    onClick={(e) => { e.stopPropagation(); setActiveConvMenu(activeConvMenu === conv.id ? null : conv.id); }}
-                                    className={`p-1.5 rounded-lg opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#eee]'}`}
-                                  >
-                                    <MoreVertical size={18} />
-                                  </button>
-                                  
-                                  {activeConvMenu === conv.id && (
-                                    <>
-                                      <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setActiveConvMenu(null); setDeleteConfirmId(null); }}></div>
-                                      <div className={`absolute right-0 top-8 w-48 rounded-xl border shadow-2xl py-1 z-20 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
-                                        {deleteConfirmId === conv.id ? (
-                                          <div className="px-3 py-2">
-                                            <div className="text-sm mb-2 text-center">Are you sure?</div>
-                                            <div className="flex gap-2">
-                                              <button 
-                                                onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(null); }}
-                                                className="flex-1 py-1 rounded text-xs bg-gray-500/20 hover:bg-gray-500/30 transition-colors"
-                                              >Cancel</button>
-                                              <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteConv(conv.id); }}
-                                                className="flex-1 py-1 rounded text-xs bg-red-500/20 text-red-500 hover:bg-red-500/30 transition-colors"
-                                              >Delete</button>
-                                            </div>
-                                          </div>
-                                        ) : (
-                                          <>
-                                            <div 
-                                              className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
-                                              onClick={(e) => { e.stopPropagation(); setEditingConvId(conv.id); setEditingTitle(conv.title); setActiveConvMenu(null); }}
-                                            >
-                                              <Edit2 size={14} /> Rename
-                                            </div>
-                                            <div 
-                                              className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
-                                              onClick={(e) => { e.stopPropagation(); handlePinConv(conv.id, !!conv.isPinned); setActiveConvMenu(null); }}
-                                            >
-                                              <Pin size={14} /> {conv.isPinned ? 'Unpin' : 'Pin'}
-                                            </div>
-                                            <div 
-                                              className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : 'hover:bg-black/10'}`}
-                                              onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(conv.id); }}
-                                            >
-                                              <Trash2 size={14} /> Delete
-                                            </div>
-                                          </>
-                                        )}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                      <div key={groupName} className="space-y-4">
+                        <h3 className="text-xs font-bold opacity-40 uppercase tracking-widest pl-1">{groupName}</h3>
+                        <div className="grid grid-cols-1 gap-4">
+                          {groupConvs.map(conv => renderHistoryItem(conv))}
                         </div>
                       </div>
                     );
@@ -5010,7 +5083,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
         {view === 'imagine' && (
           <div className="w-full max-w-4xl mx-auto p-4 md:p-8 pt-20 md:pt-24 h-full flex flex-col items-center justify-center relative">
-            <h2 className="text-3xl md:text-4xl font-bold mb-3 md:mb-4">Imagine</h2>
+            <h2 className="fluid-title font-bold mb-3 md:mb-4">Imagine</h2>
             <p className="text-base md:text-lg opacity-70 mb-8 md:mb-12 text-center max-w-2xl">Describe an image you want to generate, and Xer0byte will bring it to life.</p>
             
             {generatedImage ? (
@@ -5111,7 +5184,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         {view === 'projects' && (
           <div className="w-full max-w-4xl mx-auto p-4 md:p-8 pt-20 md:pt-24 h-full overflow-y-auto">
             <div className="flex justify-between items-center mb-8">
-              <h2 className="text-3xl font-bold">Projects</h2>
+              <h2 className="fluid-title font-bold">Projects</h2>
               <button 
                 onClick={() => setModals({...modals, createProject: true})}
                 className={`px-4 py-2 rounded-xl font-medium flex items-center gap-2 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
@@ -5183,7 +5256,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         {view === 'xer0bytepedia' && (
           <div className="w-full max-w-4xl mx-auto p-4 md:p-8 pt-20 md:pt-24 h-full flex flex-col items-center justify-center">
             <Book size={64} className="mb-6 opacity-50" />
-            <h2 className="text-3xl font-bold mb-4">Xer0bytepedia</h2>
+            <h2 className="fluid-title font-bold mb-4">Xer0bytepedia</h2>
             <p className="text-lg opacity-70 text-center max-w-md mb-8">The ultimate source of knowledge, curated by Xer0byte.</p>
             <div className={`flex items-center rounded-full p-1.5 h-16 border transition-all w-full max-w-2xl ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
               <div className="pl-4 pr-2 text-[#666]">
@@ -5200,7 +5273,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         )}
 
         {view === 'ide' && (
-          <div className={`w-full flex flex-col pt-[60px] md:pt-0 pb-0 absolute inset-0 bg-black ${isFullscreen ? 'z-[100] fixed h-screen w-screen' : 'z-40 h-full'}`}>
+          <div className={`w-full flex flex-col pt-[60px] md:pt-0 pb-0 absolute inset-0 bg-black ${isFullscreen ? 'z-[100] fixed h-screen [@supports(height:100dvh)]:h-[100dvh] w-screen [@supports(width:100dvw)]:w-[100dvw]' : 'z-40 h-full'}`}>
             <div className={`flex flex-wrap justify-between items-center p-2 sm:p-4 border-b gap-2 z-10 ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-white'}`}>
               <div className="flex items-center gap-2 w-full sm:w-auto overflow-hidden">
                 <button onClick={handleNewChat} className="p-1.5 hover:opacity-70 flex-shrink-0" title="Close & New Chat"><X size={18}/></button>
@@ -5319,6 +5392,42 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </div>
               </div>
               <div className="flex items-center gap-1 sm:gap-2 w-full sm:w-auto justify-end">
+                {/* Starter Code Templates Dropdown */}
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsTemplateDropdownOpen(!isTemplateDropdownOpen)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full font-bold text-[10px] sm:text-xs border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#00ff9d] hover:text-[#00ff9d] bg-[#111]' : 'border-[#ccc] text-[#555] hover:border-[#006633] hover:text-[#006633] bg-white'}`}
+                  >
+                    <span>Templates 🪄</span>
+                  </button>
+                  {isTemplateDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsTemplateDropdownOpen(false)}></div>
+                      <div className={`absolute right-0 top-9 w-64 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2 p-1 text-left ${theme === 'dark' ? 'bg-[#0f0f0f] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                        <div className="px-3 py-1 text-[9px] font-black uppercase tracking-widest text-[#888] mb-1.5">Boilerplate Presets</div>
+                        {STARTER_TEMPLATES.map((t) => (
+                          <div 
+                            key={t.id}
+                            onClick={() => {
+                              setCanvasContent(t.code);
+                              setCanvasLanguage(t.language);
+                              setCanvasMode('split');
+                              setIsTemplateDropdownOpen(false);
+                            }}
+                            className={`p-2.5 rounded-xl cursor-pointer text-left transition-all ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                          >
+                            <div className="font-extrabold text-xs mb-0.5 flex items-center justify-between text-[#00ff9d]">
+                              {t.title}
+                              <span className="text-[7px] uppercase font-mono font-bold tracking-wider px-1.5 py-0.5 bg-neutral-800 rounded text-[#aaa] border border-neutral-700">{t.language}</span>
+                            </div>
+                            <div className="text-[9px] opacity-60 leading-normal">{t.description}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+
                 <button 
                   onClick={handleRunCode}
                   disabled={isCanvasRunning || isThinkingIde}
@@ -5726,16 +5835,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                    )}
                    <div className={`flex items-center rounded-full px-2 py-1.5 border transition-all shadow-sm relative ${theme === 'dark' ? 'bg-[#0a0a0a] border-[#444] focus-within:border-[#00ff9d] focus-within:ring-2 focus-within:ring-[#00ff9d]/20' : 'bg-[#f5f5f5] border-[#ccc] focus-within:border-[#006633] focus-within:ring-2 focus-within:ring-[#006633]/20'}`}>
                      {isListeningIde && (
-                       <div className="absolute inset-y-1.5 left-16 right-1.5 z-50 flex items-center bg-transparent backdrop-blur-[0.5px] pointer-events-none">
-                         <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border shadow-lg ${theme === 'dark' ? 'bg-[#1a1a1a] border-[#333]' : 'bg-white border-[#ddd]'}`}>
-                           <div className="flex items-center gap-1 text-red-500">
-                             <span className="w-1.5 h-3 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0s', animationDuration: '0.6s' }}></span>
-                             <span className="w-1.5 h-5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s', animationDuration: '0.4s' }}></span>
-                             <span className="w-1.5 h-3.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s', animationDuration: '0.5s' }}></span>
-                             <span className="w-1.5 h-4.5 bg-red-500 rounded-full animate-bounce" style={{ animationDelay: '0.3s', animationDuration: '0.3s' }}></span>
-                           </div>
-                           <span className="text-[10px] font-black uppercase tracking-widest text-[#ef4444] leading-none">Voice IDE active...</span>
-                         </div>
+                       <div className="absolute inset-x-1 inset-y-1 z-50 flex items-center justify-center bg-black/60 dark:bg-[#0a0a0a]/75 backdrop-blur-md rounded-full select-none">
+                         <VoiceWaveVisualizer theme={theme} />
                        </div>
                      )}
                       <div className="flex items-center gap-1 md:gap-2 px-1">
@@ -5879,8 +5980,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       {/* Create Project Modal */}
       {modals.createProject && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={(e) => { if(e.target === e.currentTarget) setModals({...modals, createProject: false}) }}>
-          <div className={`w-[90%] max-w-[600px] rounded-2xl border shadow-2xl ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => { if(e.target === e.currentTarget) setModals({...modals, createProject: false}) }}>
+          <div className={`w-full max-w-[600px] max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
             <div className={`flex justify-between items-center p-4 px-6 border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
               <h2 className="text-xl font-semibold">New Project</h2>
               <button onClick={() => setModals({...modals, createProject: false})} className="hover:opacity-70"><X size={24} /></button>
@@ -6240,7 +6341,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       {/* Auth Modal */}
       {(modals.signIn || modals.signUp) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => { if(e.target === e.currentTarget) setModals({...modals, signIn: false, signUp: false}) }}>
-          <div className={`w-full max-w-[480px] rounded-2xl border shadow-2xl ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+          <div className={`w-full max-w-[480px] max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
             <div className={`flex justify-between items-center p-4 px-6 border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
               <h2 className="text-xl font-semibold">{modals.signIn ? 'Sign in' : 'Sign up'}</h2>
               <button onClick={() => {

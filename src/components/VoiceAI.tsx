@@ -253,9 +253,10 @@ Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized
     >
       <button 
         onClick={onClose}
-        className={`absolute top-8 right-8 p-3 rounded-xl border transition-all ${theme === 'dark' ? 'border-white/10 hover:bg-white/10 text-white' : 'border-black/10 hover:bg-black/10 text-black'}`}
+        className={`absolute top-4 right-4 sm:top-8 sm:right-8 w-11 h-11 flex items-center justify-center rounded-xl border transition-all ${theme === 'dark' ? 'border-white/10 hover:bg-white/10 text-white' : 'border-black/10 hover:bg-black/10 text-black'}`}
+        title="Close Voice Mode"
       >
-        <X size={24} />
+        <X size={20} />
       </button>
 
       <div className="text-center mb-16">
@@ -277,7 +278,7 @@ Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized
         </p>
       </div>
 
-      <div className={`w-full max-w-4xl h-[40vh] overflow-y-auto flex flex-col p-6 rounded-[30px] border transition-all scrollbar-hide mb-10 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
+      <div className={`w-full max-w-4xl h-[30vh] sm:h-[40vh] min-h-[150px] overflow-y-auto flex flex-col p-4 sm:p-6 rounded-[24px] sm:rounded-[30px] border transition-all scrollbar-hide mb-6 sm:mb-10 ${theme === 'dark' ? 'bg-white/5 border-white/10' : 'bg-black/5 border-black/10'}`}>
         {messages.map((m, i) => (
           <div key={i} className={`mb-4 w-fit max-w-[80%] p-4 rounded-[20px] ${m.role === 'user' ? 'bg-[#00ff9d]/20 text-[#00ff9d] self-end rounded-br-sm' : (theme === 'dark' ? 'bg-white/10 text-white self-start rounded-bl-sm' : 'bg-black/10 text-black self-start rounded-bl-sm') }`}>
             <p className="text-lg leading-relaxed">{m.text}</p>

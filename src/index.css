@@ -55,6 +55,32 @@
     border-radius: 0.75rem !important;
   }
 
+  /* Fluid typography utilities using clamp() for seamless responsive text */
+  .fluid-heading-hero {
+    font-size: clamp(2.5rem, 9.5vw, 8.5rem);
+    line-height: 0.9;
+    letter-spacing: -0.05em;
+  }
+
+  .fluid-subheading-hero {
+    font-size: clamp(1.1rem, 3.2vw, 1.625rem);
+    line-height: 1.4;
+  }
+
+  .fluid-title {
+    font-size: clamp(1.5rem, 5vw, 2.25rem);
+  }
+
+  /* Premium Responsive Touch Targets ensuring no element is below 44px on mobile touch */
+  .touch-target-button {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center transition-all duration-300;
+  }
+
+  /* Responsive wide content safety frames */
+  .wide-content-container {
+    @apply w-full max-w-7xl mx-auto px-4 sm:px-6 md:px-8 xl:px-12;
+  }
+
   .neural-border {
     @apply border border-white/5 dark:border-white/5;
     background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%);
