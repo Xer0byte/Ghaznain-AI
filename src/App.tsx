@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive } from 'lucide-react';
+import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -3988,13 +3988,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               }}
             />
           )}
-        </div>
 
-        {/* Anchored Bottom Footer Section */}
-        <div className="mt-auto flex flex-col gap-3 pt-3 border-t border-opacity-10 dark:border-white/10 shrink-0">
-          {/* Neural Context Gauge - Beautiful Circle Neon Design */}
+          {/* Neural Context Gauge - Beautiful Circle Neon Design placed in scrollable mid section to prevent height issues */}
           {user && (
-            <div className={`p-3 rounded-xl border flex items-center gap-3 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+            <div className={`p-3 rounded-xl border flex items-center gap-3 relative overflow-hidden group select-none mt-4 shrink-0 ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
               <div className="relative flex items-center justify-center w-10 h-10 shrink-0 transition-transform group-hover:scale-105 duration-300">
                 <svg className="w-full h-full transform -rotate-90">
                   <circle cx="20" cy="20" r="17" className={theme === 'dark' ? 'stroke-neutral-800' : 'stroke-neutral-200'} strokeWidth="4" fill="transparent" />
@@ -4035,9 +4032,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             </div>
           )}
 
-          {/* Storage Usage Card - Restored Original Style with Premium Flowing Liquid Water effect */}
+          {/* Storage Usage Card - Beautiful Liquid Progress placed in scrollable mid section to avoid overlap */}
           {user && (
-            <div className={`p-3 rounded-xl border flex flex-col gap-1.5 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+            <div className={`p-3 rounded-xl border flex flex-col gap-1.5 relative overflow-hidden group select-none mt-2 shrink-0 ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
               <div className="flex items-center justify-between font-semibold text-[10px] md:text-xs relative z-10">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <HardDrive size={12} className={`shrink-0 ${theme === 'dark' ? 'text-[#00ff9d]' : 'text-blue-500'}`} />
@@ -4068,8 +4065,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               </div>
             </div>
           )}
+        </div>
 
-          <div className="pt-2 border-t border-opacity-10 dark:border-white/10 flex items-center justify-between gap-3 shrink-0">
+        {/* Anchored Bottom Footer Section */}
+        <div className="mt-auto flex flex-col gap-3 pt-3 border-t border-opacity-10 dark:border-white/10 shrink-0">
+          <div className="flex items-center justify-between gap-3 shrink-0">
             <div className="relative">
               <div 
                 onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
@@ -4204,41 +4204,134 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   ))}
                 </div>
               )}
-              <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
-                {isListening && (
-                  <div className="absolute inset-x-1 inset-y-1.5 z-50 flex items-center justify-center bg-black/60 dark:bg-[#161616]/75 backdrop-blur-md rounded-xl select-none">
-                    <VoiceWaveVisualizer theme={theme} />
-                  </div>
-                )}
-                <div className="relative flex items-center mb-1">
-                  <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
-                    <Plus size={20} />
-                  </div>
-                  {fileMenuOpen && (
-                    <div className={`absolute bottom-12 left-0 w-48 rounded-xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
-                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}>
-                        <span className="text-lg">💻</span> Upload from device
+
+              {/* Responsive Pill-Shaped Control Bar above text input container */}
+              <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-2 px-1 select-none">
+                {/* Engine Selector Pill */}
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a] hover:border-[#333]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-650'} />
+                    <span>{selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'}</span>
+                    <ChevronDown size={11} className="opacity-60" />
+                  </button>
+                  {isModelMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsModelMenuOpen(false)}></div>
+                      <div className={`absolute bottom-full mb-1.5 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                        <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte Engine</div>
+                        
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setSelectedModel('fast'); setIsModelMenuOpen(false); }}>
+                          <div>
+                            <div className="font-medium">Fast</div>
+                            <div className="text-xs text-[#888]">Answers quickly</div>
+                          </div>
+                          {selectedModel === 'fast' && <Check size={16} className="text-blue-500" />}
+                        </div>
+                        
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
+                          if (user?.plan === 'free' && user?.role !== 'admin') {
+                            setModals(prev => ({ ...prev, upgradePro: true }));
+                            setIsModelMenuOpen(false);
+                            return;
+                          }
+                          setSelectedModel('thinking'); 
+                          setIsModelMenuOpen(false); 
+                        }}>
+                          <div>
+                            <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="text-xs text-[#888]">Solves complex problems</div>
+                          </div>
+                          {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
+                        </div>
+                        
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
+                          if (user?.plan === 'free' && user?.role !== 'admin') {
+                            setModals(prev => ({ ...prev, upgradePro: true }));
+                            setIsModelMenuOpen(false);
+                            return;
+                          }
+                          setSelectedModel('pro'); 
+                          setIsModelMenuOpen(false); 
+                        }}>
+                          <div>
+                            <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
+                          </div>
+                          {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
+                        </div>
+                        
+                        <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
+                        
+                        <div className={`px-4 py-3 flex items-center justify-between`}>
+                          <div>
+                            <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="text-xs text-[#888]">Think longer for complex tasks</div>
+                          </div>
+                          <button onClick={(e) => { 
+                            e.stopPropagation(); 
+                            if (user?.plan === 'free' && user?.role !== 'admin') {
+                              setModals(prev => ({ ...prev, upgradePro: true }));
+                              setIsModelMenuOpen(false);
+                              return;
+                            }
+                            setExtendedThinking(!extendedThinking); 
+                          }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
+                            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
+                          </button>
+                        </div>
+
+                        <div className={`px-4 py-3 flex items-center justify-between`}>
+                          <div>
+                            <div className="font-medium">Web Search</div>
+                            <div className="text-xs text-[#888]">Search the web for current info</div>
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); setUseWebSearch(!useWebSearch); }} className={`w-10 h-6 rounded-full transition-colors relative ${useWebSearch ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
+                            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${useWebSearch ? 'translate-x-4' : ''}`}></div>
+                          </button>
+                        </div>
+
+                        <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
+                        <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Persona</div>
+                        
+                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('standard'); setIsModelMenuOpen(false); }}>
+                          <div className="text-sm">Standard</div>
+                          {persona === 'standard' && <Check size={14} className="text-blue-500" />}
+                        </div>
+                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('fun'); setIsModelMenuOpen(false); }}>
+                          <div className="text-sm">Fun & Sarcastic</div>
+                          {persona === 'fun' && <Check size={14} className="text-blue-500" />}
+                        </div>
+                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('concise'); setIsModelMenuOpen(false); }}>
+                          <div className="text-sm">Concise</div>
+                          {persona === 'concise' && <Check size={14} className="text-blue-500" />}
+                        </div>
                       </div>
-                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
-                        <span className="text-lg">📁</span> Upload Folder
-                      </div>
-                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { openDrivePicker(); setFileMenuOpen(false); }}>
-                        <span className="text-lg">☁️</span> Google Drive
-                      </div>
-                    </div>
+                    </>
                   )}
-                  
-                  <div className="relative flex items-center">
-                    <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-3 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
-                      <Wrench size={16} /> Tools
-                    </button>
-                    {isToolsMenuOpen && (
-                      <div className={`absolute bottom-12 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                </div>
+
+                {/* Quick Tools Pill */}
+                <div className="relative">
+                  <button 
+                    onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a] hover:border-[#333]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                  >
+                    <Wrench size={11} className={theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'} />
+                    <span>Tools</span>
+                    <ChevronDown size={11} className="opacity-60" />
+                  </button>
+                  {isToolsMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsToolsMenuOpen(false)}></div>
+                      <div className={`absolute bottom-full mb-1.5 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
                         <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Tools</div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Create an image of "); setIsToolsMenuOpen(false); }}>
-                          <ImageIcon size={18} className="text-[#888]" />
-                          <div className="font-medium">Create image</div>
+                          <ImageIcon size={16} className="text-[#888]" />
+                          <div className="font-medium text-xs md:text-sm">Create image</div>
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
@@ -4251,118 +4344,67 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                            setCanvasActiveProjectId(null); 
                            setView('ide'); 
                         }}>
-                          <PenTool size={18} className="text-[#888]" />
-                          <div className="font-medium">Live Sandbox IDE</div>
+                          <PenTool size={16} className="text-[#888]" />
+                          <div className="font-medium text-xs md:text-sm">Live Sandbox IDE</div>
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Generate a 30-second cinematic orchestral track."); setIsToolsMenuOpen(false); }}>
-                          <Music size={18} className="text-[#888]" />
-                          <div className="font-medium flex items-center gap-2">
-                            Create music <span className="bg-blue-500/20 text-blue-500 text-[10px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                          <Music size={16} className="text-[#888]" />
+                          <div className="font-medium text-xs md:text-sm flex items-center gap-2">
+                            Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
                           </div>
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("I want to learn something new. Please start a guided learning session, asking me questions one by one to test my knowledge on: "); setIsToolsMenuOpen(false); }}>
-                          <BookOpen size={18} className="text-[#888]" />
-                          <div className="font-medium">Guided Learning</div>
+                          <BookOpen size={16} className="text-[#888]" />
+                          <div className="font-medium text-xs md:text-sm">Guided Learning</div>
                         </div>
                       </div>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
-                
-                <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-center md:self-end">
-                  <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3.5 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
-                    {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
+
+                {/* Web Search pill */}
+                <button 
+                  onClick={() => setUseWebSearch(!useWebSearch)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${useWebSearch ? (theme === 'dark' ? 'bg-[#00ff9d]/10 border-[#00ff9d]/30 text-[#00ff9d]' : 'bg-emerald-50 border-emerald-200 text-[#006633]') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
+                >
+                  <Globe size={11} className={useWebSearch ? 'animate-pulse' : ''} />
+                  <span>Search</span>
+                </button>
+
+                {/* Extended thinking pill */}
+                {(user?.plan !== 'free' || user?.role === 'admin') && (
+                  <button 
+                    onClick={() => setExtendedThinking(!extendedThinking)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${extendedThinking ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-purple-50 border-purple-200 text-purple-600') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
+                  >
+                    <Brain size={11} className={extendedThinking ? 'animate-pulse' : ''} />
+                    <span>Deep Think</span>
                   </button>
-                  {isModelMenuOpen && (
-                    <div className={`absolute bottom-12 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
-                      <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte</div>
-                      
-                      <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setSelectedModel('fast'); setIsModelMenuOpen(false); }}>
-                        <div>
-                          <div className="font-medium">Fast</div>
-                          <div className="text-xs text-[#888]">Answers quickly</div>
-                        </div>
-                        {selectedModel === 'fast' && <Check size={16} className="text-blue-500" />}
-                      </div>
-                      
-                      <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                        if (user?.plan === 'free' && user?.role !== 'admin') {
-                          setModals(prev => ({ ...prev, upgradePro: true }));
-                          setIsModelMenuOpen(false);
-                          return;
-                        }
-                        setSelectedModel('thinking'); 
-                        setIsModelMenuOpen(false); 
-                      }}>
-                        <div>
-                          <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                          <div className="text-xs text-[#888]">Solves complex problems</div>
-                        </div>
-                        {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
-                      </div>
-                      
-                      <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                        if (user?.plan === 'free' && user?.role !== 'admin') {
-                          setModals(prev => ({ ...prev, upgradePro: true }));
-                          setIsModelMenuOpen(false);
-                          return;
-                        }
-                        setSelectedModel('pro'); 
-                        setIsModelMenuOpen(false); 
-                      }}>
-                        <div>
-                          <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                          <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
-                        </div>
-                        {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
-                      </div>
-                      
-                      <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
-                      
-                      <div className={`px-4 py-3 flex items-center justify-between`}>
-                        <div>
-                          <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                          <div className="text-xs text-[#888]">Think longer for complex tasks</div>
-                        </div>
-                        <button onClick={(e) => { 
-                          e.stopPropagation(); 
-                          if (user?.plan === 'free' && user?.role !== 'admin') {
-                            setModals(prev => ({ ...prev, upgradePro: true }));
-                            setIsModelMenuOpen(false);
-                            return;
-                          }
-                          setExtendedThinking(!extendedThinking); 
-                        }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
-                          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
-                        </button>
-                      </div>
+                )}
+              </div>
 
-                      <div className={`px-4 py-3 flex items-center justify-between`}>
-                        <div>
-                          <div className="font-medium">Web Search</div>
-                          <div className="text-xs text-[#888]">Search the web for current info</div>
-                        </div>
-                        <button onClick={(e) => { e.stopPropagation(); setUseWebSearch(!useWebSearch); }} className={`w-10 h-6 rounded-full transition-colors relative ${useWebSearch ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
-                          <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${useWebSearch ? 'translate-x-4' : ''}`}></div>
-                        </button>
+              <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
+                {isListening && (
+                  <div className="absolute inset-x-1 inset-y-1.5 z-50 flex items-center justify-center bg-black/60 dark:bg-[#161616]/75 backdrop-blur-md rounded-xl select-none">
+                    <VoiceWaveVisualizer theme={theme} />
+                  </div>
+                )}
+                <div className="relative flex items-center mb-1 shrink-0">
+                  <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0" title="Upload Attachments">
+                    <Plus size={20} />
+                  </div>
+                  {fileMenuOpen && (
+                    <div className={`absolute bottom-12 left-0 w-48 rounded-xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { fileInputRef.current?.click(); setFileMenuOpen(false); }}>
+                        <span className="text-lg">💻</span> Upload from device
                       </div>
-
-                      <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
-                      <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Persona</div>
-                      
-                      <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('standard'); setIsModelMenuOpen(false); }}>
-                        <div className="text-sm">Standard</div>
-                        {persona === 'standard' && <Check size={14} className="text-blue-500" />}
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { folderInputRef.current?.click(); setFileMenuOpen(false); }}>
+                        <span className="text-lg">📁</span> Upload Folder
                       </div>
-                      <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('fun'); setIsModelMenuOpen(false); }}>
-                        <div className="text-sm">Fun & Sarcastic</div>
-                        {persona === 'fun' && <Check size={14} className="text-blue-500" />}
-                      </div>
-                      <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('concise'); setIsModelMenuOpen(false); }}>
-                        <div className="text-sm">Concise</div>
-                        {persona === 'concise' && <Check size={14} className="text-blue-500" />}
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { openDrivePicker(); setFileMenuOpen(false); }}>
+                        <span className="text-lg">☁️</span> Google Drive
                       </div>
                     </div>
                   )}
@@ -4381,10 +4423,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     } 
                   }}
                   onPaste={handlePaste}
-                  placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s)` : "How can I help?"}
+                  placeholder={selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached` : "How can I help?"}
                   className={`flex-1 bg-transparent border-none outline-none text-[15px] md:text-[17px] px-1 md:px-2 py-3 resize-none max-h-40 min-w-0 ${theme === 'dark' ? 'text-white placeholder-[#666]' : 'text-black placeholder-[#999]'}`}
                 />
-                <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end">
+                <div className="flex items-center gap-1 md:gap-2 pr-1 md:pr-2 mb-1.5 self-end shrink-0">
                   {/* Smart Sparkle Prompt Enhancer */}
                   <button
                     onClick={async (e) => {
@@ -4412,7 +4454,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </button>
 
                   <div className="relative">
-                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-full shrink-0 ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`}>
+                    <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-full shrink-0 ${theme === 'dark' ? 'hover:bg-[#333]' : 'hover:bg-[#ddd]'} ${isListening ? 'text-red-500 animate-pulse' : ''}`} title="Voice Settings">
                       <Mic size={18} />
                     </button>
                     {isMicMenuOpen && !isListening && (
@@ -4620,14 +4662,195 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     ))}
                   </div>
                 )}
+
+                {/* Responsive Pill-Shaped Control Bar above text input container */}
+                <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-2 px-1 select-none">
+                  {/* Engine Selector Pill */}
+                  <div className="relative">
+                    <button 
+                      onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a] hover:border-[#333]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-650'} />
+                      <span>{selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'}</span>
+                      <ChevronDown size={11} className="opacity-60" />
+                    </button>
+                    {isModelMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsModelMenuOpen(false)}></div>
+                        <div className={`absolute bottom-full mb-1.5 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                          <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte Engine</div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setSelectedModel('fast'); setIsModelMenuOpen(false); }}>
+                            <div>
+                              <div className="font-medium">Fast</div>
+                              <div className="text-xs text-[#888]">Answers quickly</div>
+                            </div>
+                            {selectedModel === 'fast' && <Check size={16} className="text-blue-500" />}
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
+                            if (user?.plan === 'free' && user?.role !== 'admin') {
+                              setModals(prev => ({ ...prev, upgradePro: true }));
+                              setIsModelMenuOpen(false);
+                              return;
+                            }
+                            setSelectedModel('thinking'); 
+                            setIsModelMenuOpen(false); 
+                          }}>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="text-xs text-[#888]">Solves complex problems</div>
+                            </div>
+                            {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
+                            if (user?.plan === 'free' && user?.role !== 'admin') {
+                              setModals(prev => ({ ...prev, upgradePro: true }));
+                              setIsModelMenuOpen(false);
+                              return;
+                            }
+                            setSelectedModel('pro'); 
+                            setIsModelMenuOpen(false); 
+                          }}>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
+                            </div>
+                            {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
+                          </div>
+                          
+                          <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
+                          
+                          <div className={`px-4 py-3 flex items-center justify-between`}>
+                            <div>
+                              <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="text-xs text-[#888]">Think longer for complex tasks</div>
+                            </div>
+                            <button onClick={(e) => { 
+                              e.stopPropagation(); 
+                              if (user?.plan === 'free' && user?.role !== 'admin') {
+                                setModals(prev => ({ ...prev, upgradePro: true }));
+                                setIsModelMenuOpen(false);
+                                return;
+                              }
+                              setExtendedThinking(!extendedThinking); 
+                            }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
+                              <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
+                            </button>
+                          </div>
+
+                          <div className={`px-4 py-3 flex items-center justify-between`}>
+                            <div>
+                              <div className="font-medium">Web Search</div>
+                              <div className="text-xs text-[#888]">Search the web for current info</div>
+                            </div>
+                            <button onClick={(e) => { e.stopPropagation(); setUseWebSearch(!useWebSearch); }} className={`w-10 h-6 rounded-full transition-colors relative ${useWebSearch ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
+                              <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${useWebSearch ? 'translate-x-4' : ''}`}></div>
+                            </button>
+                          </div>
+
+                          <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
+                          <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Persona</div>
+                          
+                          <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('standard'); setIsModelMenuOpen(false); }}>
+                            <div className="text-sm">Standard</div>
+                            {persona === 'standard' && <Check size={14} className="text-blue-500" />}
+                          </div>
+                          <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('fun'); setIsModelMenuOpen(false); }}>
+                            <div className="text-sm">Fun & Sarcastic</div>
+                            {persona === 'fun' && <Check size={14} className="text-blue-500" />}
+                          </div>
+                          <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('concise'); setIsModelMenuOpen(false); }}>
+                            <div className="text-sm">Concise</div>
+                            {persona === 'concise' && <Check size={14} className="text-blue-500" />}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Quick Tools Pill */}
+                  <div className="relative">
+                    <button 
+                      onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a] hover:border-[#333]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      <Wrench size={11} className={theme === 'dark' ? 'text-cyan-400' : 'text-cyan-600'} />
+                      <span>Tools</span>
+                      <ChevronDown size={11} className="opacity-60" />
+                    </button>
+                    {isToolsMenuOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setIsToolsMenuOpen(false)}></div>
+                        <div className={`absolute bottom-full mb-1.5 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                          <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Tools</div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Create an image of "); setIsToolsMenuOpen(false); }}>
+                            <ImageIcon size={16} className="text-[#888]" />
+                            <div className="font-medium text-xs md:text-sm">Create image</div>
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
+                             setIsToolsMenuOpen(false);
+                             if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
+                             if (user.role !== 'admin' && user.plan === 'free') {
+                               setModals(prev => ({ ...prev, upgradePro: true }));
+                               return;
+                             }
+                             setCanvasActiveProjectId(null); 
+                             setView('ide'); 
+                          }}>
+                            <PenTool size={16} className="text-[#888]" />
+                            <div className="font-medium text-xs md:text-sm">Live Sandbox IDE</div>
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Generate a 30-second cinematic orchestral track."); setIsToolsMenuOpen(false); }}>
+                            <Music size={16} className="text-[#888]" />
+                            <div className="font-medium text-xs md:text-sm flex items-center gap-2">
+                              Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                            </div>
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("I want to learn something new. Please start a guided learning session, asking me questions one by one to test my knowledge on: "); setIsToolsMenuOpen(false); }}>
+                            <BookOpen size={16} className="text-[#888]" />
+                            <div className="font-medium text-xs md:text-sm">Guided Learning</div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Web Search pill */}
+                  <button 
+                    onClick={() => setUseWebSearch(!useWebSearch)}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${useWebSearch ? (theme === 'dark' ? 'bg-[#00ff9d]/10 border-[#00ff9d]/30 text-[#00ff9d]' : 'bg-emerald-50 border-emerald-200 text-[#006633]') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
+                  >
+                    <Globe size={11} className={useWebSearch ? 'animate-pulse' : ''} />
+                    <span>Search</span>
+                  </button>
+
+                  {/* Extended thinking pill */}
+                  {(user?.plan !== 'free' || user?.role === 'admin') && (
+                    <button 
+                      onClick={() => setExtendedThinking(!extendedThinking)}
+                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${extendedThinking ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-purple-50 border-purple-200 text-purple-600') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
+                    >
+                      <Brain size={11} className={extendedThinking ? 'animate-pulse' : ''} />
+                      <span>Deep Think</span>
+                    </button>
+                  )}
+                </div>
+
                 <div className={`flex items-end rounded-2xl p-1.5 min-h-[56px] md:min-h-[64px] h-auto border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555] focus-within:ring-4 focus-within:ring-white/10' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999] focus-within:ring-4 focus-within:ring-black/10'}`}>
                   {isListening && (
                     <div className="absolute inset-x-1 inset-y-1.5 z-50 flex items-center justify-center bg-black/60 dark:bg-[#161616]/75 backdrop-blur-md rounded-xl select-none">
                       <VoiceWaveVisualizer theme={theme} />
                     </div>
                   )}
-                  <div className="relative flex items-center mb-1">
-                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0">
+                  <div className="relative flex items-center mb-1 shrink-0">
+                    <div onClick={() => setFileMenuOpen(!fileMenuOpen)} className="w-11 h-11 flex items-center justify-center text-[#666] cursor-pointer hover:text-white transition-colors shrink-0" title="Upload Attachments">
                       <Plus size={20} />
                     </div>
                     {fileMenuOpen && (
@@ -4643,174 +4866,35 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </div>
                       </div>
                     )}
-                    
-                    <div className="relative flex items-center">
-                      <button onClick={() => setIsToolsMenuOpen(!isToolsMenuOpen)} className={`flex items-center gap-1 px-3 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
-                        <Wrench size={16} /> Tools
-                      </button>
-                      {isToolsMenuOpen && (
-                        <div className={`absolute bottom-12 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
-                          <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Tools</div>
-                          
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Create an image of "); setIsToolsMenuOpen(false); }}>
-                            <ImageIcon size={18} className="text-[#888]" />
-                            <div className="font-medium">Create image</div>
-                          </div>
-                          
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                             setIsToolsMenuOpen(false);
-                             if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                             if (user.role !== 'admin' && user.plan === 'free') {
-                               setModals(prev => ({ ...prev, upgradePro: true }));
-                               return;
-                             }
-                             setCanvasActiveProjectId(null); 
-                             setView('ide'); 
-                          }}>
-                            <PenTool size={18} className="text-[#888]" />
-                            <div className="font-medium">Live Sandbox IDE</div>
-                          </div>
-                          
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Generate a 30-second cinematic orchestral track."); setIsToolsMenuOpen(false); }}>
-                            <Music size={18} className="text-[#888]" />
-                            <div className="font-medium flex items-center gap-2">
-                              Create music <span className="bg-blue-500/20 text-blue-500 text-[10px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
-                            </div>
-                          </div>
-                          
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("I want to learn something new. Please start a guided learning session, asking me questions one by one to test my knowledge on: "); setIsToolsMenuOpen(false); }}>
-                            <BookOpen size={18} className="text-[#888]" />
-                            <div className="font-medium">Guided Learning</div>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="relative flex items-center border-r border-[#ddd] dark:border-[#333] pr-2 mr-2 mb-1 self-center md:self-end">
-                    <button onClick={() => setIsModelMenuOpen(!isModelMenuOpen)} className={`flex items-center gap-1 px-3.5 h-11 md:h-8 rounded-full text-sm font-medium transition-colors ${theme === 'dark' ? 'hover:bg-[#333] text-[#ddd]' : 'hover:bg-[#e5e5e5] text-[#555]'}`}>
-                      {selectedModel === 'fast' ? 'Fast' : selectedModel === 'thinking' ? 'Thinking' : 'Pro'} <ChevronDown size={14} />
-                    </button>
-                    {isModelMenuOpen && (
-                      <div className={`absolute bottom-12 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
-                        <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte</div>
-                        
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setSelectedModel('fast'); setIsModelMenuOpen(false); }}>
-                          <div>
-                            <div className="font-medium">Fast</div>
-                            <div className="text-xs text-[#888]">Answers quickly</div>
-                          </div>
-                          {selectedModel === 'fast' && <Check size={16} className="text-blue-500" />}
-                        </div>
-                        
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                          if (user?.plan === 'free' && user?.role !== 'admin') {
-                            setModals(prev => ({ ...prev, upgradePro: true }));
-                            setIsModelMenuOpen(false);
-                            return;
-                          }
-                          setSelectedModel('thinking'); 
-                          setIsModelMenuOpen(false); 
-                        }}>
-                          <div>
-                            <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                            <div className="text-xs text-[#888]">Solves complex problems</div>
-                          </div>
-                          {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
-                        </div>
-                        
-                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                          if (user?.plan === 'free' && user?.role !== 'admin') {
-                            setModals(prev => ({ ...prev, upgradePro: true }));
-                            setIsModelMenuOpen(false);
-                            return;
-                          }
-                          setSelectedModel('pro'); 
-                          setIsModelMenuOpen(false); 
-                        }}>
-                          <div>
-                            <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                            <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
-                          </div>
-                          {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
-                        </div>
-                        
-                        <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
-                        
-                        <div className={`px-4 py-3 flex items-center justify-between`}>
-                          <div>
-                            <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
-                            <div className="text-xs text-[#888]">Think longer for complex tasks</div>
-                          </div>
-                          <button onClick={(e) => { 
-                            e.stopPropagation(); 
-                            if (user?.plan === 'free' && user?.role !== 'admin') {
-                              setModals(prev => ({ ...prev, upgradePro: true }));
-                              setIsModelMenuOpen(false);
-                              return;
-                            }
-                            setExtendedThinking(!extendedThinking); 
-                          }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
-                            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
-                          </button>
-                        </div>
- 
-                        <div className={`px-4 py-3 flex items-center justify-between`}>
-                          <div>
-                            <div className="font-medium">Web Search</div>
-                            <div className="text-xs text-[#888]">Search the web for current info</div>
-                          </div>
-                          <button onClick={(e) => { e.stopPropagation(); setUseWebSearch(!useWebSearch); }} className={`w-10 h-6 rounded-full transition-colors relative ${useWebSearch ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
-                            <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${useWebSearch ? 'translate-x-4' : ''}`}></div>
-                          </button>
-                        </div>
- 
-                        <div className="border-t border-[#ddd] dark:border-[#333] my-1"></div>
-                        <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Persona</div>
-                        
-                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('standard'); setIsModelMenuOpen(false); }}>
-                          <div className="text-sm">Standard</div>
-                          {persona === 'standard' && <Check size={14} className="text-blue-500" />}
-                        </div>
-                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('fun'); setIsModelMenuOpen(false); }}>
-                          <div className="text-sm">Fun & Sarcastic</div>
-                          {persona === 'fun' && <Check size={14} className="text-blue-500" />}
-                        </div>
-                        <div className={`px-4 py-2 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setPersona('concise'); setIsModelMenuOpen(false); }}>
-                          <div className="text-sm">Concise</div>
-                          {persona === 'concise' && <Check size={14} className="text-blue-500" />}
-                        </div>
-                      </div>
-                    )}
                   </div>
  
                   <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="*/*" multiple />
                   <input type="file" ref={folderInputRef} onChange={handleFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
-                    <textarea 
-                      ref={chatInputRef}
-                      value={inputText}
-                      onChange={handleInputChange}
-                      onKeyDown={e => { 
-                        if (e.key === 'Enter' && !e.shiftKey) { 
-                          e.preventDefault(); 
-                          handleSend(); 
-                        } 
-                      }}
-                      onPaste={handlePaste}
-                      placeholder={editingMessageIndex !== null ? "Editing message... Subsequent chats will be removed." : (selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "Command Xero Engine...")}
-                      className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-[30vh] overflow-y-auto min-w-0 transition-all placeholder:font-black placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-[10px] md:placeholder:text-[11px] ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
-                    />
-                    <div className="flex items-center gap-2 pr-2 mb-1.5 self-end transition-all">
-                      {editingMessageIndex !== null && (
-                        <button 
-                          onClick={() => { setEditingMessageIndex(null); setInputText(''); }} 
-                          className="p-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all"
-                        >
-                          Cancel
-                        </button>
-                      )}
-                      <div className="relative">
-                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`}>
+                  <textarea 
+                    ref={chatInputRef}
+                    value={inputText}
+                    onChange={handleInputChange}
+                    onKeyDown={e => { 
+                      if (e.key === 'Enter' && !e.shiftKey) { 
+                        e.preventDefault(); 
+                        handleSend(); 
+                      } 
+                    }}
+                    onPaste={handlePaste}
+                    placeholder={editingMessageIndex !== null ? "Editing message... Subsequent chats will be removed." : (selectedFiles.length > 0 ? `${selectedFiles.length} file(s) attached. Add a message...` : "Command Xero Engine...")}
+                    className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-[15px] md:text-[17px] px-2 py-3 resize-none max-h-[30vh] overflow-y-auto min-w-0 transition-all placeholder:font-black placeholder:uppercase placeholder:tracking-[0.1em] placeholder:text-[10px] md:placeholder:text-[11px] ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
+                  />
+                  <div className="flex items-center gap-2 pr-2 mb-1.5 self-end transition-all shrink-0">
+                    {editingMessageIndex !== null && (
+                      <button 
+                        onClick={() => { setEditingMessageIndex(null); setInputText(''); }} 
+                        className="p-2 rounded-xl text-xs font-bold text-red-500 hover:bg-red-500/10 transition-all"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <div className="relative">
+                      <button onClick={() => { if(isListening) { startListening(); } else { setIsMicMenuOpen(!isMicMenuOpen); } }} className={`w-11 h-11 flex items-center justify-center rounded-xl transition-all ${theme === 'dark' ? 'hover:bg-white/5 text-white/40 hover:text-white' : 'hover:bg-black/5 text-black/40 hover:text-black'} ${isListening ? 'text-red-500 animate-pulse bg-red-500/10' : ''}`} title="Voice Settings">
                         <Mic size={20} strokeWidth={2.5} />
                       </button>
                       {isMicMenuOpen && !isListening && (
