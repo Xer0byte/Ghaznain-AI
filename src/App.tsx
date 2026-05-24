@@ -3893,7 +3893,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       {/* Sidebar */}
       <aside className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen [@supports(height:100dvh)]:h-[100dvh] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-all duration-300 ease-in-out shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
-        <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
+        {/* Top Header Section */}
+        <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all mb-4 shrink-0 ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
           <Search size={18} />
           <input 
             type="text" 
@@ -3905,220 +3906,222 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           <span className="ml-auto text-xs opacity-50 hidden sm:inline">Ctrl+K</span>
         </div>
         
-        <div className="mt-4 space-y-1">
-          <div 
-            onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} 
-            className={`flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl transition-all text-sm font-bold mb-4 shadow-lg ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
-          >
-            <Plus size={18} />
-            <span>New Chat</span>
-          </div>
-          {[
-            { id: 'chat', icon: MessageSquare, label: 'Chat' },
-            { id: 'private', icon: MessageSquare, label: 'Private Chat', onClick: () => { setIsPrivateChat(true); setMessages([]); setCurrentConversationId(null); } },
-            { id: 'voice', icon: Mic, label: 'Voice', onClick: () => { if (isListening) startListening(); } },
-            { id: 'imagine', icon: ImageIcon, label: 'Imagine' },
-            { id: 'projects', icon: Folder, label: 'Projects' },
-            { id: 'history', icon: Clock, label: 'History' },
-            { id: 'xer0bytepedia', icon: Book, label: 'Xer0bytepedia' },
-            { id: 'ide', icon: PenTool, label: 'Neural Sandbox' }
-          ].concat((user?.role === 'admin' || user?.plan === 'pro' || user?.plan === 'business_pro') ? [{ id: 'notebook', icon: BookOpen, label: 'Xer0byteLM' }] : []).map((item) => (
+        {/* Scrollable Mid Section */}
+        <div className="flex-1 overflow-y-auto pr-1 select-none space-y-4 py-1 custom-scrollbar min-h-0">
+          <div className="space-y-1">
             <div 
-              key={item.id}
-              onClick={() => { 
-                if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                if (user.role !== 'admin' && user.plan === 'free' && item.id === 'ide') {
-                  setModals(prev => ({ ...prev, upgradePro: true }));
-                  return;
-                }
-                if (item.id !== 'private') setIsPrivateChat(false);
-                if (item.onClick) item.onClick();
-                if (item.id === 'chat') {
-                  setView(messages.length > 0 ? 'chat' : 'home');
-                } else if (item.id === 'private') {
-                  setView('home');
-                } else {
-                  setView(item.id as any);
-                }
-                if (window.innerWidth < 768) setIsSidebarOpen(false);
-              }} 
-              className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${(view === item.id || (item.id === 'private' && isPrivateChat)) ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}
+              onClick={() => { setIsPrivateChat(false); setMessages([]); setCurrentConversationId(null); setView('home'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} 
+              className={`flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl transition-all text-sm font-bold mb-4 shadow-lg cursor-pointer ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
             >
-              <item.icon size={20} className={item.id === 'private' ? 'text-purple-500' : ''} />
-              <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>
-                {(item.id === 'chat' && messages.length > 0) ? 'Current Chat' : item.label}
-              </span>
+              <Plus size={18} />
+              <span>New Chat</span>
             </div>
-          ))}
-          {user?.role === 'admin' && (
-            <div onClick={() => { setView('admin'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${view === 'admin' ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}>
-              <Settings size={20} />
-              <span>Admin Panel</span>
-            </div>
+            {[
+              { id: 'chat', icon: MessageSquare, label: 'Chat' },
+              { id: 'private', icon: MessageSquare, label: 'Private Chat', onClick: () => { setIsPrivateChat(true); setMessages([]); setCurrentConversationId(null); } },
+              { id: 'voice', icon: Mic, label: 'Voice', onClick: () => { if (isListening) startListening(); } },
+              { id: 'imagine', icon: ImageIcon, label: 'Imagine' },
+              { id: 'projects', icon: Folder, label: 'Projects' },
+              { id: 'history', icon: Clock, label: 'History' },
+              { id: 'xer0bytepedia', icon: Book, label: 'Xer0bytepedia' },
+              { id: 'ide', icon: PenTool, label: 'Neural Sandbox' }
+            ].concat((user?.role === 'admin' || user?.plan === 'pro' || user?.plan === 'business_pro') ? [{ id: 'notebook', icon: BookOpen, label: 'Xer0byteLM' }] : []).map((item) => (
+              <div 
+                key={item.id}
+                onClick={() => { 
+                  if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
+                  if (user.role !== 'admin' && user.plan === 'free' && item.id === 'ide') {
+                    setModals(prev => ({ ...prev, upgradePro: true }));
+                    return;
+                  }
+                  if (item.id !== 'private') setIsPrivateChat(false);
+                  if (item.onClick) item.onClick();
+                  if (item.id === 'chat') {
+                    setView(messages.length > 0 ? 'chat' : 'home');
+                  } else if (item.id === 'private') {
+                    setView('home');
+                  } else {
+                    setView(item.id as any);
+                  }
+                  if (window.innerWidth < 768) setIsSidebarOpen(false);
+                }} 
+                className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${(view === item.id || (item.id === 'private' && isPrivateChat)) ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}
+              >
+                <item.icon size={20} className={item.id === 'private' ? 'text-purple-500' : ''} />
+                <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>
+                  {(item.id === 'chat' && messages.length > 0) ? 'Current Chat' : item.label}
+                </span>
+              </div>
+            ))}
+            {user?.role === 'admin' && (
+              <div onClick={() => { setView('admin'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${view === 'admin' ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}>
+                <Settings size={20} />
+                <span>Admin Panel</span>
+              </div>
+            )}
+          </div>
+
+          {/* Beautiful Workspace File Sidebar (Collapsible Tree View) */}
+          {user && (
+            <WorkspaceFileTree 
+              selectedFiles={selectedFiles}
+              setSelectedFiles={setSelectedFiles}
+              ideSelectedFiles={ideSelectedFiles}
+              setIdeSelectedFiles={setIdeSelectedFiles}
+              extractedFiles={(() => {
+                if (messages.length === 0) return [];
+                const lastMsg = messages[messages.length - 1];
+                if (lastMsg.role !== 'ai' || !lastMsg.text) return [];
+                return extractFilesFromMarkdown(lastMsg.text);
+              })()}
+              theme={theme}
+              onViewFile={(file) => {
+                setAlertModal({ 
+                  isOpen: true, 
+                  message: `Viewing File: ${file.name}\n\n${truncateText(file.data, 800)}` 
+                });
+              }}
+              onSendToSandbox={(filename, content) => {
+                setIdePrompt(`Check this file: ${filename}\n\nContent:\n${content}`);
+                setView('ide');
+                setAlertModal({ isOpen: true, message: `Opened '${filename}' content inside Neural Sandbox IDE input box.` });
+              }}
+            />
           )}
         </div>
 
-        {/* Beautiful Workspace File Sidebar (Collapsible Tree View) */}
-        {user && (
-          <WorkspaceFileTree 
-            selectedFiles={selectedFiles}
-            setSelectedFiles={setSelectedFiles}
-            ideSelectedFiles={ideSelectedFiles}
-            setIdeSelectedFiles={setIdeSelectedFiles}
-            extractedFiles={(() => {
-              if (messages.length === 0) return [];
-              const lastMsg = messages[messages.length - 1];
-              if (lastMsg.role !== 'ai' || !lastMsg.text) return [];
-              return extractFilesFromMarkdown(lastMsg.text);
-            })()}
-            theme={theme}
-            onViewFile={(file) => {
-              setAlertModal({ 
-                isOpen: true, 
-                message: `Viewing File: ${file.name}\n\n${truncateText(file.data, 800)}` 
-              });
-            }}
-            onSendToSandbox={(filename, content) => {
-              setIdePrompt(`Check this file: ${filename}\n\nContent:\n${content}`);
-              setView('ide');
-              setAlertModal({ isOpen: true, message: `Opened '${filename}' content inside Neural Sandbox IDE input box.` });
-            }}
-          />
-        )}
-
-        <div className="mt-auto flex flex-col gap-4">
+        {/* Anchored Bottom Footer Section */}
+        <div className="mt-auto flex flex-col gap-3 pt-3 border-t border-opacity-10 dark:border-white/10 shrink-0">
           {/* Neural Context Gauge - Beautiful Circle Neon Design */}
           {user && (
-            <div className={`p-4 rounded-xl border flex items-center gap-4 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
-              <div className="relative flex items-center justify-center w-12 h-12 shrink-0 transition-transform group-hover:scale-105 duration-300">
+            <div className={`p-3 rounded-xl border flex items-center gap-3 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+              <div className="relative flex items-center justify-center w-10 h-10 shrink-0 transition-transform group-hover:scale-105 duration-300">
                 <svg className="w-full h-full transform -rotate-90">
-                  <circle cx="24" cy="24" r="21" className={theme === 'dark' ? 'stroke-neutral-800' : 'stroke-neutral-200'} strokeWidth="4.5" fill="transparent" />
+                  <circle cx="20" cy="20" r="17" className={theme === 'dark' ? 'stroke-neutral-800' : 'stroke-neutral-200'} strokeWidth="4" fill="transparent" />
                   <circle 
-                    cx="24" 
-                    cy="24" 
-                    r="21" 
+                    cx="20" 
+                    cy="20" 
+                    r="17" 
                     className={`transition-all duration-1000 ease-out ${
                       tokenPercent > 85 ? 'stroke-red-500' : tokenPercent > 50 ? 'stroke-amber-400' : 'stroke-cyan-400'
                     }`} 
-                    strokeWidth="4.5" 
-                    strokeDasharray={132} 
-                    strokeDashoffset={132 - (tokenPercent / 100) * 132} 
+                    strokeWidth="4" 
+                    strokeDasharray={107} 
+                    strokeDashoffset={107 - (tokenPercent / 100) * 107} 
                     strokeLinecap="round"
                     fill="transparent" 
                     style={{
-                      filter: tokenPercent > 85 ? 'drop-shadow(0 0 4px rgba(239, 68, 68, 0.6))' : 'drop-shadow(0 0 4px rgba(34, 211, 238, 0.6))'
+                      filter: tokenPercent > 85 ? 'drop-shadow(0 0 3px rgba(239, 68, 68, 0.6))' : 'drop-shadow(0 0 3px rgba(34, 211, 238, 0.6))'
                     }}
                   />
                 </svg>
-                <div className="absolute font-mono text-[9px] font-black tracking-tighter">
+                <div className="absolute font-mono text-[8px] font-black tracking-tighter">
                   {tokenPercent.toFixed(0)}%
                 </div>
               </div>
 
-              <div className="flex-1 flex flex-col gap-0.5">
+              <div className="flex-1 flex flex-col gap-0.5 min-w-0">
                 <div className="flex items-center justify-between font-semibold text-xs relative z-10">
-                  <span className="font-bold text-[10px] uppercase tracking-wider text-neutral-400">Context Window</span>
-                  <div className={`w-1.5 h-1.5 rounded-full ${tokenPercent > 85 ? 'bg-red-500 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></div>
+                  <span className="font-bold text-[9px] uppercase tracking-wider text-neutral-400 truncate">Context window</span>
+                  <div className={`w-1 h-1 rounded-full shrink-0 ${tokenPercent > 85 ? 'bg-red-500 animate-ping' : 'bg-cyan-400 animate-pulse'}`}></div>
                 </div>
-                <div className="font-mono text-xs font-bold leading-tight">
+                <div className="font-mono text-[10px] sm:text-xs font-bold leading-tight truncate">
                   {activeTokenCount >= 1000000 
                     ? `${(activeTokenCount / 1000000).toFixed(2)}M` 
                     : `${(activeTokenCount / 1000).toFixed(1)}K`
-                  } <span className="text-neutral-500 font-normal">/ 2M tokens</span>
+                  } <span className="text-neutral-500 font-normal">/ 2M</span>
                 </div>
-                <p className="text-[9px] opacity-60 leading-normal">Real-time active memory.</p>
               </div>
             </div>
           )}
 
           {/* Storage Usage Card - Restored Original Style with Premium Flowing Liquid Water effect */}
           {user && (
-            <div className={`p-4 rounded-xl border flex flex-col gap-2 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
-              <div className="flex items-center justify-between font-semibold text-xs md:text-sm relative z-10">
-                <div className="flex items-center gap-2">
-                  <HardDrive size={14} className={theme === 'dark' ? 'text-[#00ff9d]' : 'text-blue-500'} />
-                  <span className="font-bold">Active Storage</span>
+            <div className={`p-3 rounded-xl border flex flex-col gap-1.5 relative overflow-hidden group select-none ${theme === 'dark' ? 'bg-[#111] border-[#222]' : 'bg-[#f5f5f5] border-[#ddd]'}`}>
+              <div className="flex items-center justify-between font-semibold text-[10px] md:text-xs relative z-10">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <HardDrive size={12} className={`shrink-0 ${theme === 'dark' ? 'text-[#00ff9d]' : 'text-blue-500'}`} />
+                  <span className="font-bold truncate">Active Storage</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className={`w-1.5 h-1.5 rounded-full ${storagePercent > 85 ? 'bg-red-500 animate-ping' : 'bg-[#00ff9d] animate-pulse'}`}></div>
-                  <span className={`text-[8px] md:text-[9px] font-bold uppercase tracking-wider ${storagePercent > 85 ? 'text-red-400' : 'text-[#00ff9d]'}`}>
+                <div className="flex items-center gap-1 shrink-0">
+                  <div className={`w-1 h-1 rounded-full ${storagePercent > 85 ? 'bg-red-500 animate-ping' : 'bg-[#00ff9d] animate-pulse'}`}></div>
+                  <span className={`text-[8px] font-bold uppercase tracking-wider ${storagePercent > 85 ? 'text-red-400' : 'text-[#00ff9d]'}`}>
                     {storagePercent > 85 ? 'Near Limit' : 'Live Sync'}
                   </span>
                 </div>
               </div>
 
               {/* Liquid Progress Bar Track */}
-              <div className={`w-full h-2 md:h-2.5 rounded-full overflow-hidden relative ${theme === 'dark' ? 'bg-[#222]' : 'bg-gray-200'}`}>
+              <div className={`w-full h-1.5 rounded-full overflow-hidden relative ${theme === 'dark' ? 'bg-[#222]' : 'bg-gray-200'}`}>
                 <div 
                   className="h-full rounded-full liquid-progress relative transition-all duration-1000 ease-out overflow-hidden" 
                   style={{ width: `${storagePercent}%` }}
                 >
-                  {/* Subtle inner animated wet-shimmer highlights */}
                   <div className="absolute inset-0 bg-white/25 mix-blend-overlay w-full h-full animate-pulse"></div>
                   <div className="absolute inset-y-0 left-0 w-20 bg-gradient-to-r from-transparent via-white/20 to-transparent transform -skew-x-12 translate-x-[-150%] animate-shimmer" style={{ animation: 'shimmer 2.5s infinite' }}></div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-[10px] md:text-xs opacity-75 font-mono">
-                <span>{formatBytes(storageUsed)} / {formatBytes(storageLimit)}</span>
-                <span className="font-bold">{storagePercent.toFixed(1)}%</span>
+              <div className="flex items-center justify-between text-[9px] opacity-75 font-mono">
+                <span className="truncate">{formatBytes(storageUsed)} / {formatBytes(storageLimit)}</span>
+                <span className="font-bold shrink-0">{storagePercent.toFixed(1)}%</span>
               </div>
             </div>
           )}
 
-          <div className="pt-4 border-t border-opacity-20 flex items-center gap-3">
+          <div className="pt-2 border-t border-opacity-10 dark:border-white/10 flex items-center justify-between gap-3 shrink-0">
             <div className="relative">
-            <div 
-              onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
-              className="w-11 h-11 rounded-full cursor-pointer flex items-center justify-center text-white font-bold text-lg overflow-hidden shrink-0"
-              style={{ background: user && !user.profilePhoto ? user.avatarColor : '#444' }}
-            >
-              {user?.profilePhoto ? <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" /> : (user ? user.name.charAt(0) : 'U')}
-            </div>
-            
-            {/* User Menu Dropdown */}
-            {modals.userMenu && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setModals({...modals, userMenu: false})}></div>
-                <div className={`absolute bottom-14 left-0 w-56 rounded-xl border shadow-2xl py-2 z-20 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
-                  {user && (
-                  <div className="px-4 py-2 mb-1 border-b border-opacity-20">
-                    <div className="font-bold">{user.name}</div>
-                    <div className="text-xs opacity-70 mb-1">{user.email}</div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Plan</span>
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${user.plan === 'free' ? 'bg-gray-500 text-white' : 'bg-gradient-to-r from-[#00ff9d] to-[#00b8ff] text-black'}`}>
-                        {user.plan === 'free' ? 'FREE' : user.plan.toUpperCase().replace('_', ' ')}
-                      </span>
-                    </div>
-                    {user.plan === 'free' && user.role !== 'admin' && (
-                      <div className="text-[10px] opacity-60 mt-1 text-right">
-                        {user.messageCount || 0} / 20 messages (per 5h)
+              <div 
+                onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
+                className="w-11 h-11 rounded-full cursor-pointer flex items-center justify-center text-white font-bold text-lg overflow-hidden shrink-0 border border-white/10 shadow-md"
+                style={{ background: user && !user.profilePhoto ? user.avatarColor : '#444' }}
+              >
+                {user?.profilePhoto ? <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" /> : (user ? user.name.charAt(0) : 'U')}
+              </div>
+              
+              {/* User Menu Dropdown */}
+              {modals.userMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setModals({...modals, userMenu: false})}></div>
+                  <div className={`absolute bottom-14 left-0 w-56 rounded-xl border shadow-2xl py-2 z-20 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+                    {user && (
+                      <div className="px-4 py-2 mb-1 border-b border-opacity-20">
+                        <div className="font-bold truncate">{user.name}</div>
+                        <div className="text-xs opacity-70 mb-1 truncate">{user.email}</div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-xs font-semibold uppercase tracking-wider opacity-60">Plan</span>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${user.plan === 'free' ? 'bg-gray-500 text-white' : 'bg-gradient-to-r from-[#00ff9d] to-[#00b8ff] text-black'}`}>
+                            {user.plan === 'free' ? 'FREE' : user.plan.toUpperCase().replace('_', ' ')}
+                          </span>
+                        </div>
+                        {user.plan === 'free' && user.role !== 'admin' && (
+                          <div className="text-[10px] opacity-60 mt-1 text-right">
+                            {user.messageCount || 0} / 20 messages (per 5h)
+                          </div>
+                        )}
                       </div>
                     )}
+                    <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setModals({...modals, userMenu: false, settings: true}); }}>Settings</div>
+                    <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setModals({...modals, userMenu: false, tasks: true}); }}>Tasks</div>
+                    <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Files</div>
+                    <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Xer0bytepedia</div>
+                    <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Help</div>
+                    <div className={`my-1 border-t ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}></div>
+                    {user?.plan !== 'pro' && (
+                      <div onClick={() => { setModals({...modals, userMenu: false, upgradePro: true}); }} className={`px-4 py-2 cursor-pointer hover:bg-black/10 font-medium ${theme === 'dark' ? 'hover:bg-white/10 text-[#00ff9d]' : 'text-[#006633]'}`}>Upgrade to Pro</div>
+                    )}
+                    {user && (
+                      <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={handleLogout}>Sign Out</div>
+                    )}
                   </div>
-                )}
-                <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setModals({...modals, userMenu: false, settings: true}); }}>Settings</div>
-                <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { setModals({...modals, userMenu: false, tasks: true}); }}>Tasks</div>
-                <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Files</div>
-                <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Xer0bytepedia</div>
-                <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`}>Help</div>
-                <div className={`my-1 border-t ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}></div>
-                {user?.plan !== 'pro' && (
-                  <div onClick={() => { setModals({...modals, userMenu: false, upgradePro: true}); }} className={`px-4 py-2 cursor-pointer hover:bg-black/10 font-medium ${theme === 'dark' ? 'hover:bg-white/10 text-[#00ff9d]' : 'text-[#006633]'}`}>Upgrade to Pro</div>
-                )}
-                {user && (
-                  <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 text-red-500 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={handleLogout}>Sign Out</div>
-                )}
-              </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
+            
+            <button onClick={() => setModals({...modals, settings: true})} className={`w-11 h-11 rounded-xl flex items-center justify-center transition-all ${theme === 'dark' ? 'text-[#888] hover:bg-[#222] hover:text-white' : 'text-[#555] hover:bg-[#e0e0e0] hover:text-black'}`} title="Settings">
+              <Settings size={20} />
+            </button>
           </div>
-          
-          <button onClick={() => setModals({...modals, settings: true})} className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${theme === 'dark' ? 'text-[#888] hover:bg-[#222] hover:text-white' : 'text-[#555] hover:bg-[#e0e0e0] hover:text-black'}`}>
-            <Settings size={18} />
-          </button>
-        </div>
         </div>
       </aside>
 
