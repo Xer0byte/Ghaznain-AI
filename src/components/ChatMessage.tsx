@@ -458,7 +458,8 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
                 {msg.text.length > 200 && (
                   <button onClick={() => {
                     if (!user) { setModals((prev: any) => ({...prev, signIn: true})); return; }
-                    if (user.role !== 'admin' && user.plan === 'free') {
+                    const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
+                    if (!hasProAccess) {
                       setModals((prev: any) => ({ ...prev, upgradePro: true }));
                       return;
                     }

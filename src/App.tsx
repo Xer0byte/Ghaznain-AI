@@ -1297,7 +1297,9 @@ export default function App() {
     messageCount?: number, 
     storageUsed?: number,
     dailyImageCount?: number,
-    lastImageReset?: any
+    lastImageReset?: any,
+    dailyThinkingCount?: number,
+    lastThinkingReset?: any
   } | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
@@ -1347,6 +1349,7 @@ export default function App() {
   const [selectedPlanToUpgrade, setSelectedPlanToUpgrade] = useState<'lite' | 'pro' | 'business_lite' | 'business_pro'>('pro');
   const [planTab, setPlanTab] = useState<'individual' | 'business'>('individual');
   const [paymentFormState, setPaymentFormState] = useState({ phone: '', method: 'easypaisa', proof: '' });
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [currency, setCurrency] = useState<'USD' | 'PKR'>('USD');
   const [hasAcceptedCookies, setHasAcceptedCookies] = useState(() => localStorage.getItem('xer0byteCookies') === 'true');
@@ -1802,10 +1805,46 @@ Return "Code executed successfully with no output." if the program produces abso
     }
     
     // Extra security check for paid features
-    if (user.role !== 'admin' && user.plan === 'free') {
-      if (selectedModel === 'pro' || selectedModel === 'thinking' || extendedThinking) {
-        setModals(prev => ({ ...prev, upgradePro: true }));
-        return;
+    if (user.role !== 'admin') {
+      const plan = user.plan || 'free';
+      if (plan === 'free') {
+        if (selectedModel === 'pro' || selectedModel === 'thinking' || extendedThinking) {
+          setModals(prev => ({ ...prev, upgradePro: true }));
+          return;
+        }
+      } else if (plan === 'lite' || plan === 'business_lite') {
+        if (selectedModel === 'pro' || extendedThinking) {
+          setModals(prev => ({ ...prev, upgradePro: true }));
+          return;
+        }
+        
+        // Dynamic thinking engine quota check (IDE)
+        if (selectedModel === 'thinking') {
+          const now = new Date();
+          const lastReset = user.lastThinkingReset?.seconds ? new Date(user.lastThinkingReset.seconds * 1000) : new Date(user.lastThinkingReset || 0);
+          const isSameDay = now.toDateString() === lastReset.toDateString();
+          const count = isSameDay ? (user.dailyThinkingCount || 0) : 0;
+          
+          if (count >= 15) {
+            setAlertModal({ 
+              isOpen: true, 
+              message: "Daily Thinking Engine limit reached. SuperXer0byte Lite users get 15 thinking queries per 24 hours. Please upgrade to Pro for unrestricted access!" 
+            });
+            return;
+          }
+          
+          // Increment thinking engine usage
+          const newCount = count + 1;
+          await firestoreService.updateUserProfile(user.id, {
+            dailyThinkingCount: newCount,
+            lastThinkingReset: isSameDay ? undefined : serverTimestamp()
+          });
+          setUser(prev => prev ? { 
+            ...prev, 
+            dailyThinkingCount: newCount, 
+            lastThinkingReset: isSameDay ? prev.lastThinkingReset : { seconds: Math.floor(Date.now()/1000) } 
+          } : null);
+        }
       }
     }
 
@@ -2239,12 +2278,52 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     }
     
     // Extra security check for paid features
-    if (user.role !== 'admin' && user.plan === 'free') {
-      if (selectedModel === 'pro' || selectedModel === 'thinking' || extendedThinking) {
-        setModals(prev => ({ ...prev, upgradePro: true }));
-        isSendingRef.current = false;
-        setIsThinking(false);
-        return;
+    if (user.role !== 'admin') {
+      const plan = user.plan || 'free';
+      if (plan === 'free') {
+        if (selectedModel === 'pro' || selectedModel === 'thinking' || extendedThinking) {
+          setModals(prev => ({ ...prev, upgradePro: true }));
+          isSendingRef.current = false;
+          setIsThinking(false);
+          return;
+        }
+      } else if (plan === 'lite' || plan === 'business_lite') {
+        if (selectedModel === 'pro' || extendedThinking) {
+          setModals(prev => ({ ...prev, upgradePro: true }));
+          isSendingRef.current = false;
+          setIsThinking(false);
+          return;
+        }
+        
+        // Dynamic thinking engine quota check (Chat)
+        if (selectedModel === 'thinking') {
+          const now = new Date();
+          const lastReset = user.lastThinkingReset?.seconds ? new Date(user.lastThinkingReset.seconds * 1000) : new Date(user.lastThinkingReset || 0);
+          const isSameDay = now.toDateString() === lastReset.toDateString();
+          const count = isSameDay ? (user.dailyThinkingCount || 0) : 0;
+          
+          if (count >= 15) {
+            setAlertModal({ 
+              isOpen: true, 
+              message: "Daily Thinking Engine limit reached. SuperXer0byte Lite users get 15 thinking queries per 24 hours. Please upgrade to Pro for unrestricted access!" 
+            });
+            isSendingRef.current = false;
+            setIsThinking(false);
+            return;
+          }
+          
+          // Increment thinking engine usage
+          const newCount = count + 1;
+          await firestoreService.updateUserProfile(user.id, {
+            dailyThinkingCount: newCount,
+            lastThinkingReset: isSameDay ? undefined : serverTimestamp()
+          });
+          setUser(prev => prev ? { 
+            ...prev, 
+            dailyThinkingCount: newCount, 
+            lastThinkingReset: isSameDay ? prev.lastThinkingReset : { seconds: Math.floor(Date.now()/1000) } 
+          } : null);
+        }
       }
     }
     
@@ -2549,6 +2628,26 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       } else if (musicMatch && musicMatch[1]) {
         const musicPrompt = musicMatch[1].trim();
         const remainingText = fullAiText.replace(/\[GENERATE_MUSIC:\s*(.*?)\]/i, '').trim();
+
+        // Music access verification
+        const hasMusicAccess = user?.role === 'admin' || user?.plan === 'pro' || user?.plan === 'business_pro';
+        if (!hasMusicAccess) {
+          const lockedText = remainingText 
+            ? `${remainingText}\n\n⚠️ *Generative Music Hub is an exclusive SuperXer0byte Pro feature. Please upgrade your tier to Pro to compose neural sound beds.*` 
+            : `⚠️ *Generative Music Hub is an exclusive SuperXer0byte Pro feature. Please upgrade your tier to Pro to compose neural sound beds.*`;
+          setMessages(prev => {
+            const newMsgs = [...prev];
+            newMsgs[newMsgs.length - 1] = { ...newMsgs[newMsgs.length - 1], text: lockedText, id: finalAiMsgId };
+            return newMsgs;
+          });
+          if (activeConvId && user) {
+            await firestoreService.addMessage(user.id, activeConvId, {
+              role: 'ai',
+              text: lockedText
+            }, finalAiMsgId);
+          }
+          return;
+        }
 
         setMessages(prev => {
           const newMsgs = [...prev];
@@ -3769,9 +3868,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   const getStorageLimit = (plan: string) => {
     switch(plan) {
       case 'lite': return 5 * 1024 * 1024 * 1024; // 5 GB
-      case 'pro': return 20 * 1024 * 1024 * 1024; // 20 GB
+      case 'pro': return 50 * 1024 * 1024 * 1024; // 50 GB
       case 'business_lite': return 100 * 1024 * 1024 * 1024; // 100 GB
-      case 'business_pro': return 500 * 1024 * 1024 * 1024; // 500 GB
+      case 'business_pro': return 1024 * 1024 * 1024 * 1024; // 1 TB
       default: return 100 * 1024 * 1024; // 100 MB for free tier
     }
   };
@@ -3930,7 +4029,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 key={item.id}
                 onClick={() => { 
                   if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                  if (user.role !== 'admin' && user.plan === 'free' && item.id === 'ide') {
+                  const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
+                  if (!hasProAccess && item.id === 'ide') {
                     setModals(prev => ({ ...prev, upgradePro: true }));
                     return;
                   }
@@ -4248,7 +4348,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                          if (user?.plan === 'free' && user?.role !== 'admin') {
+                          if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
                             setModals(prev => ({ ...prev, upgradePro: true }));
                             setIsModelMenuOpen(false);
                             return;
@@ -4257,7 +4357,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           setIsModelMenuOpen(false); 
                         }}>
                           <div>
-                            <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="font-medium flex items-center gap-2">Pro {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
                             <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
                           </div>
                           {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
@@ -4267,12 +4367,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         
                         <div className={`px-4 py-3 flex items-center justify-between`}>
                           <div>
-                            <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="font-medium flex items-center gap-2">Extended thinking {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
                             <div className="text-xs text-[#888]">Think longer for complex tasks</div>
                           </div>
                           <button onClick={(e) => { 
                             e.stopPropagation(); 
-                            if (user?.plan === 'free' && user?.role !== 'admin') {
+                            if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
                               setModals(prev => ({ ...prev, upgradePro: true }));
                               setIsModelMenuOpen(false);
                               return;
@@ -4337,7 +4437,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
                            setIsToolsMenuOpen(false);
                            if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                           if (user.role !== 'admin' && user.plan === 'free') {
+                           const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
+                           if (!hasProAccess) {
                              setModals(prev => ({ ...prev, upgradePro: true }));
                              return;
                            }
@@ -4374,7 +4475,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </button>
 
                 {/* Extended thinking pill */}
-                {(user?.plan !== 'free' || user?.role === 'admin') && (
+                {(user?.plan === 'pro' || user?.plan === 'business_pro' || user?.role === 'admin') && (
                   <button 
                     onClick={() => setExtendedThinking(!extendedThinking)}
                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${extendedThinking ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-purple-50 border-purple-200 text-purple-600') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
@@ -4706,7 +4807,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           </div>
                           
                           <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                            if (user?.plan === 'free' && user?.role !== 'admin') {
+                            if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
                               setModals(prev => ({ ...prev, upgradePro: true }));
                               setIsModelMenuOpen(false);
                               return;
@@ -4715,7 +4816,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             setIsModelMenuOpen(false); 
                           }}>
                             <div>
-                              <div className="font-medium flex items-center gap-2">Pro {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="font-medium flex items-center gap-2">Pro {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
                               <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
                             </div>
                             {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
@@ -4725,12 +4826,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           
                           <div className={`px-4 py-3 flex items-center justify-between`}>
                             <div>
-                              <div className="font-medium flex items-center gap-2">Extended thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="font-medium flex items-center gap-2">Extended thinking {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
                               <div className="text-xs text-[#888]">Think longer for complex tasks</div>
                             </div>
                             <button onClick={(e) => { 
                               e.stopPropagation(); 
-                              if (user?.plan === 'free' && user?.role !== 'admin') {
+                              if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
                                 setModals(prev => ({ ...prev, upgradePro: true }));
                                 setIsModelMenuOpen(false);
                                 return;
@@ -4795,7 +4896,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
                              setIsToolsMenuOpen(false);
                              if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                             if (user.role !== 'admin' && user.plan === 'free') {
+                             const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
+                             if (!hasProAccess) {
                                setModals(prev => ({ ...prev, upgradePro: true }));
                                return;
                              }
@@ -4832,7 +4934,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   </button>
 
                   {/* Extended thinking pill */}
-                  {(user?.plan !== 'free' || user?.role === 'admin') && (
+                  {(user?.plan === 'pro' || user?.plan === 'business_pro' || user?.role === 'admin') && (
                     <button 
                       onClick={() => setExtendedThinking(!extendedThinking)}
                       className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${extendedThinking ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' : 'bg-purple-50 border-purple-200 text-purple-600') : (theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/40 hover:text-white/80' : 'bg-white border-gray-200 text-gray-500 hover:text-black')}`}
@@ -5322,6 +5424,12 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         >Delete</button>
                         <button 
                           onClick={() => {
+                            if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
+                            const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
+                            if (!hasProAccess) {
+                              setModals(prev => ({ ...prev, upgradePro: true }));
+                              return;
+                            }
                             if (project.content) {
                               setCanvasContent(project.content);
                               setCanvasActiveProjectId(project._id || project.id);
@@ -6191,123 +6299,209 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       {/* Upgrade Pro Modal */}
       {modals.upgradePro && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200 overflow-y-auto">
-          <div className="w-full max-w-5xl py-10 flex flex-col items-center relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/95 backdrop-blur-xl animate-in fade-in duration-200 overflow-y-auto custom-scrollbar">
+          <div className="w-full max-w-6xl py-8 md:py-12 flex flex-col items-center relative my-auto">
             
-            <button onClick={() => { setModals({...modals, upgradePro: false}); setUpgradeStep('plans'); }} className="absolute top-0 right-0 md:top-6 md:right-6 text-white/50 hover:text-white transition-colors p-2">
-              <X size={32} />
+            <button 
+              onClick={() => { setModals({...modals, upgradePro: false}); setUpgradeStep('plans'); }} 
+              className="absolute top-0 right-0 md:-top-2 md:-right-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full p-2.5 transition-all outline-none"
+              title="Close modal"
+            >
+              <X size={26} />
             </button>
 
             {upgradeStep === 'plans' ? (
-              <div className="w-full">
-                <div className="text-center mb-10">
-                  <h2 className="text-3xl md:text-5xl font-bold text-white mb-4 flex items-center justify-center gap-3">
-                    <span className="text-[#00ff9d]">⊘</span> SuperXer0byte
+              <div className="w-full animate-in zoom-in-95 duration-200">
+                <div className="text-center mb-8 max-w-2xl mx-auto px-4">
+                  <span className="bg-gradient-to-r from-emerald-500/20 to-[#00ff9d]/20 text-[#00ff9d] border border-[#00ff9d]/20 px-4 py-1.5 rounded-full text-xs font-black uppercase tracking-[0.2em] mb-4 inline-block shadow-sm">
+                    ⚡ Xer0byte Enterprise Tier
+                  </span>
+                  <h2 className="text-3xl md:text-5xl font-black text-white tracking-tight mb-3">
+                    Activate Premium Compute
                   </h2>
-                  <p className="text-lg md:text-xl text-white/80">Unlock the full power of Chat with Xer0byte 4.2</p>
+                  <p className="text-sm md:text-base text-white/60">
+                    Gain full access to advanced multi-file sandboxes, unrestricted thinking engines, real-time code execution, and high-fidelity audio synthesis.
+                  </p>
                 </div>
 
-                <div className="flex bg-black/40 backdrop-blur-md rounded-xl p-1.5 mb-10 max-w-xs mx-auto border border-white/5">
-                  <button onClick={() => setPlanTab('individual')} className={`flex-1 px-4 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${planTab === 'individual' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>Individual</button>
-                  <button onClick={() => setPlanTab('business')} className={`flex-1 px-4 md:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${planTab === 'business' ? 'bg-white text-black shadow-lg' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>Business</button>
+                {/* Subscriptions Options Hub (Pills) */}
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-10 max-w-lg mx-auto px-4">
+                  {/* Individual/Business Pill Toggle */}
+                  <div className="flex bg-neutral-900/90 rounded-2xl p-1 border border-white/5 w-full sm:w-auto">
+                    <button 
+                      onClick={() => setPlanTab('individual')} 
+                      className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${planTab === 'individual' ? 'bg-[#00ff9d] text-black font-black shadow-lg shadow-[#00ff9d]/10' : 'text-neutral-400 hover:text-white'}`}
+                    >
+                      Individual
+                    </button>
+                    <button 
+                      onClick={() => setPlanTab('business')} 
+                      className={`flex-1 sm:flex-initial px-5 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${planTab === 'business' ? 'bg-[#00ff9d] text-black font-black shadow-lg shadow-[#00ff9d]/10' : 'text-neutral-400 hover:text-white'}`}
+                    >
+                      Business / API
+                    </button>
+                  </div>
+
+                  {/* Currency Selector Pill */}
+                  <div className="flex bg-neutral-900/90 rounded-2xl p-1 border border-white/5 w-full sm:w-auto font-mono">
+                    <button 
+                      onClick={() => setCurrency('USD')} 
+                      className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition-all ${currency === 'USD' ? 'bg-white/10 text-[#00ff9d] border border-white/10' : 'text-neutral-400 hover:text-white'}`}
+                    >
+                      USD ($)
+                    </button>
+                    <button 
+                      onClick={() => setCurrency('PKR')} 
+                      className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition-all ${currency === 'PKR' ? 'bg-white/10 text-[#00ff9d] border border-white/10' : 'text-neutral-400 hover:text-white'}`}
+                    >
+                      PKR (Rs)
+                    </button>
+                  </div>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6 w-full max-w-4xl mx-auto">
+                <div className="grid md:grid-cols-2 gap-8 w-full max-w-5xl mx-auto px-4 items-stretch">
                   
-                  {/* Lite Plan */}
-                  <div className="bg-[#1a1a1a] border border-[#333] rounded-3xl p-6 md:p-8 flex flex-col">
-                    <h3 className="text-xl md:text-2xl font-bold text-white mb-2">SuperXer0byte Lite {planTab === 'business' && '(Yearly)'}</h3>
-                    <div className="flex items-baseline gap-2 mb-6">
-                      <span className="text-3xl md:text-4xl font-bold text-white">
+                  {/* Lite Tier */}
+                  <div className="bg-neutral-900/60 border border-neutral-800 rounded-3xl p-6 md:p-8 flex flex-col hover:border-neutral-700 transition-all duration-300 relative group">
+                    <div className="mb-6">
+                      <span className="text-neutral-400/80 text-xs font-black uppercase tracking-widest block mb-1">Standard Dev Sandbox</span>
+                      <h3 className="text-xl md:text-2xl font-black text-white">SuperXer0byte Lite</h3>
+                      <p className="text-xs text-neutral-400 mt-1">Core AI capabilities for daily work</p>
+                    </div>
+
+                    <div className="flex items-baseline gap-1 mb-6 border-b border-neutral-800/60 pb-6">
+                      <span className="text-3xl md:text-5xl font-extrabold text-white tracking-tight">
                         {currency === 'USD' ? '$' : 'Rs '}{planTab === 'individual' ? prices.lite[currency] : prices.business_lite[currency]}
                       </span>
-                      <span className="text-white/50 text-sm">{currency}/{planTab === 'individual' ? 'month' : 'year'}</span>
+                      <span className="text-neutral-500 text-xs font-semibold">/{planTab === 'individual' ? 'month' : 'yearly'}</span>
                     </div>
-                    <p className="text-white/80 mb-8 font-medium text-sm md:text-base">Keep chatting with basic access</p>
                     
-                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'lite' : 'business_lite')} className="w-full py-3 md:py-4 rounded-xl bg-white/10 text-white font-bold text-base md:text-lg hover:bg-white/20 transition-all active:scale-[0.98] mb-8 border border-white/10 shadow-lg">
+                    <button 
+                      onClick={() => handleUpgradePro(planTab === 'individual' ? 'lite' : 'business_lite')} 
+                      className="w-full py-4 rounded-2xl bg-neutral-800/80 hover:bg-neutral-700/80 text-white font-extrabold text-sm uppercase tracking-wider transition-all duration-200 active:scale-[0.98] mb-8 border border-neutral-700"
+                    >
                       Upgrade to Lite
                     </button>
 
-                    <ul className="space-y-4 md:space-y-5 text-white/80 font-medium flex-1 text-sm md:text-base">
+                    <div className="text-xs font-black uppercase tracking-wider text-neutral-500 mb-4">Core Features Included:</div>
+                    <ul className="space-y-4 text-white hover:text-white/95 transition-colors flex-1 text-sm">
                       {planTab === 'individual' ? (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Access to Gemini 1.5 Pro</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Live AI Voice Mode Access</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🧠</span> Neural Sandbox (Frontend Only)</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🖼️</span> Basic AI Image Generation</li>
-                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 5 GB Secure Storage</li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Access to <strong>Fast Model Engine</strong> (optimized latency)</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Limited daily access to <strong>Thinking engines</strong></span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Standard interactive **Live AI Voice mode**</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>AI Image generation (up to 1080p standard formats)</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>5 GB Secure Space</strong> active cloud storage (Live Sync)</span></li>
                         </>
                       ) : (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Gemini 1.5 Pro for Teams</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Unlimited Voice Mode for members</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🧠</span> Neural Sandbox Team Shared</li>
-                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 100 GB Team Storage</li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎧</span> Priority Support</li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Gemini 1.5 Pro model allocations for small teams</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Basic shared Sandbox workspaces</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Voice integration for team chat threads</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>100 GB Total Group cloud storage</strong></span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Next-day email developer support channels</span></li>
                         </>
                       )}
                     </ul>
                   </div>
 
-                  {/* Pro Plan */}
-                  <div className="bg-gradient-to-b from-[#2a1a1a] to-[#1a1a1a] border border-[#553333] rounded-3xl p-6 md:p-8 flex flex-col relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-[#ff6b00] opacity-10 blur-[100px] rounded-full"></div>
+                  {/* Pro Tier (Popular/Glowing) */}
+                  <div className="bg-gradient-to-b from-[#111c16] to-[#0a0f0c] border-2 border-[#00ff9d]/30 rounded-3xl p-6 md:p-8 flex flex-col relative overflow-hidden shadow-2xl shadow-[#00ff9d]/5 group">
+                    <div className="absolute top-0 right-0 bg-[#00ff9d] text-black text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-bl-3xl shadow-sm z-15">
+                      ★ Best Value
+                    </div>
+                    <div className="absolute -top-12 -right-12 w-48 h-48 bg-[#00ff9d] opacity-5 blur-[100px] rounded-full pointer-events-none group-hover:opacity-10 transition-opacity"></div>
                     
-                    <h3 className="text-xl md:text-2xl font-bold text-white mb-2 relative z-10">SuperXer0byte {planTab === 'business' && '(Yearly)'}</h3>
-                    <div className="flex items-baseline gap-2 mb-6 relative z-10">
-                      <span className="text-3xl md:text-4xl font-bold text-white">
+                    <div className="mb-6">
+                      <span className="text-[#00ff9d] text-xs font-black uppercase tracking-widest block mb-1">Advanced Neural Workspace</span>
+                      <h3 className="text-xl md:text-2xl font-black text-white">SuperXer0byte Pro</h3>
+                      <p className="text-xs text-[#00ff9d]/70 mt-1">Maximum power, unlimited memory sandbox</p>
+                    </div>
+
+                    <div className="flex items-baseline gap-1 mb-6 border-b border-[#00ff9d]/10 pb-6">
+                      <span className="text-3xl md:text-5xl font-black text-[#00ff9d] tracking-tight">
                         {currency === 'USD' ? '$' : 'Rs '}{planTab === 'individual' ? prices.pro[currency] : prices.business_pro[currency]}
                       </span>
-                      <span className="text-white/50 text-sm">{currency}/{planTab === 'individual' ? 'month' : 'year'}</span>
+                      <span className="text-neutral-400 text-xs font-semibold">/{planTab === 'individual' ? 'month' : 'yearly'}</span>
                     </div>
-                    <p className="text-white/80 mb-8 font-medium text-sm md:text-base relative z-10">Get better answers, faster</p>
                     
-                    <button onClick={() => handleUpgradePro(planTab === 'individual' ? 'pro' : 'business_pro')} className="w-full py-3 md:py-4 rounded-xl bg-white text-black font-bold text-base md:text-lg hover:bg-gray-200 transition-all active:scale-[0.98] mb-8 relative z-10 shadow-xl shadow-white/5">
-                      Upgrade to SuperXer0byte
+                    <button 
+                      onClick={() => handleUpgradePro(planTab === 'individual' ? 'pro' : 'business_pro')} 
+                      className="w-full py-4 rounded-2xl bg-[#00ff9d] text-black font-extrabold text-sm uppercase tracking-wider transition-all duration-300 hover:bg-[#00e38a] hover:shadow-lg hover:shadow-[#00ff9d]/10 active:scale-[0.98] mb-8"
+                    >
+                      Upgrade to Pro SuperXer0byte
                     </button>
 
-                    <ul className="space-y-4 md:space-y-5 text-white/80 font-medium flex-1 relative z-10 text-sm md:text-base">
+                    <div className="text-xs font-black uppercase tracking-wider text-[#00ff9d]/80 mb-4">Elite Capabilities Included:</div>
+                    <ul className="space-y-4 text-white/90 flex-1 text-sm list-none">
                       {planTab === 'individual' ? (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Neural Thinking & Advanced Gemini 3.1 Pro</li>
-                          <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">🧠</span> 
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">⚡</span> 
                             <div>
-                              <div className="text-white">Full-Stack Neural IDE</div>
-                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Build 100% functional Neural Sites & Cloud Apps</div>
+                              <span className="font-bold text-white">Unrestricted Advanced Engines</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Full access to Thinking & Deep-Think (Extended details)</p>
                             </div>
                           </li>
-                          <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">🎨</span> 
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">💻</span> 
                             <div>
-                              <div className="text-white">Pro Generative Suite</div>
-                              <div className="text-[10px] md:text-sm text-white/50 font-normal">4K Image Gen & Neural Waveforms (Lyria Beta)</div>
+                              <span className="font-bold text-white">Live Full-Stack Sandbox IDE</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Build and live-preview full react/express projects on direct urls</p>
                             </div>
                           </li>
-                          <li className="flex items-center gap-4"><span className="text-white">🎤</span> Unlimited Interactive Neural Voice Mode</li>
-                          <li className="flex items-center gap-4"><span className="text-white">📁</span> 50 GB Neural Cloud Storage (High Speed)</li>
-                          <li className="flex items-center gap-4"><span className="text-white">⚡</span> Zero restrictions on Neural Thought Length</li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">🎵</span> 
+                            <div>
+                              <span className="font-bold text-white">Neural Generative Music Hub</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Compose immersive 30s audio soundbeds from neural prompts</p>
+                            </div>
+                          </li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">📁</span> 
+                            <div>
+                              <span className="font-bold text-white">50 GB High-Speed Secure Cloud Storage</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Instant live-sync for sandbox files & historical prompt payloads</p>
+                            </div>
+                          </li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">🎙️</span> 
+                            <div>
+                              <span className="font-bold text-white">Unlimited High-Fidelity Voice Chat</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Beautiful speech-wave audio tracking without session dropouts</p>
+                            </div>
+                          </li>
                         </>
                       ) : (
                         <>
-                          <li className="flex items-center gap-4"><span className="text-white">🚀</span> Team-Wide Neural Compute (Priority)</li>
-                          <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">🌩️</span> 
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">🌩️</span> 
                             <div>
-                              <div className="text-white">Neural Enterprise Cloud</div>
-                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Dedicated Managed Clusters & Data Sync</div>
+                              <span className="font-bold text-white">Team Dedicated Managed Compute Cluster</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Zero API rate limits and completely private team memory pools</p>
                             </div>
                           </li>
-                          <li className="flex items-start gap-4">
-                            <span className="text-white mt-1">📁</span> 
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">📁</span> 
                             <div>
-                              <div className="text-white">1 TB Massive Secure Storage</div>
-                              <div className="text-[10px] md:text-sm text-white/50 font-normal">Infinite History & Bulk File Processing</div>
+                              <span className="font-bold text-white">1 TB Massive Encrypted Space</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Secure organization-wide data vault with backup restoration support</p>
                             </div>
                           </li>
-                          <li className="flex items-center gap-4"><span className="text-white">🛡️</span> Bank-Grade Neural Encryption & SSO</li>
-                          <li className="flex items-center gap-4"><span className="text-white">👨‍💼</span> Dedicated 24/7 Neural Support Team</li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">🛡️</span> 
+                            <div>
+                              <span className="font-bold text-white">Bank-Grade SSE Encryption & SAML SSO</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Integrate corporate identity logins securely with neural logs disabled</p>
+                            </div>
+                          </li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">👑</span> 
+                            <div>
+                              <span className="font-bold text-white">24/7 Priority Engineer Support Hotline</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Sub-hour response times direct from lead system designers</p>
+                            </div>
+                          </li>
                         </>
                       )}
                     </ul>
@@ -6316,71 +6510,224 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </div>
               </div>
             ) : (
-              <div className="w-full max-w-md bg-[#1a1a1a] border border-[#333] rounded-3xl p-6 md:p-8 flex flex-col">
-                <button onClick={() => setUpgradeStep('plans')} className="text-white/50 hover:text-white mb-6 self-start flex items-center gap-2 text-sm font-bold px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all">
-                  <span>←</span> Back to plans
+              <div className="w-full max-w-4xl px-4 animate-in slide-in-from-bottom-6 duration-300">
+                {/* Back button */}
+                <button 
+                  onClick={() => setUpgradeStep('plans')} 
+                  className="text-neutral-400 hover:text-white mb-6 self-start flex items-center gap-2 text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition-all outline-none"
+                >
+                  <span>←</span> Return to Tiers
                 </button>
-                <h3 className="text-2xl md:text-3xl font-bold text-white mb-2">Complete Payment</h3>
-                <p className="text-white/70 mb-6 text-sm md:text-base">
-                  Please send <strong>{currency === 'USD' ? '$' : 'Rs '}{prices[selectedPlanToUpgrade][currency]}</strong> to the following account to activate your {selectedPlanToUpgrade.replace('_', ' ').toUpperCase()} plan.
-                </p>
 
-                <div className="bg-[#222] p-4 md:p-6 rounded-xl mb-6 border border-[#444] text-center space-y-4">
-                  <div>
-                    <div className="text-sm text-white/50 mb-1">Easypaisa / Jazzcash</div>
-                    <div className="text-xl md:text-2xl font-mono text-[#00ff9d] font-bold tracking-wider">03294733140</div>
-                  </div>
-                  <div className="border-t border-[#444] pt-4">
-                    <div className="text-sm text-white/50 mb-1">Meezan Bank</div>
-                    <div className="text-base md:text-xl font-mono text-[#00ff9d] font-bold tracking-wider mb-1">11320113622881</div>
-                    <div className="text-xs md:text-sm font-mono text-[#00b8ff] break-all">IBAN: PK46 MEZN 0011320113622881</div>
-                  </div>
-                </div>
-
-                <div className="space-y-4 mb-8">
-                  <div>
-                    <label className="block text-sm text-white/70 mb-2">Payment Method Used</label>
-                    <select 
-                      value={paymentFormState.method}
-                      onChange={e => setPaymentFormState({...paymentFormState, method: e.target.value})}
-                      className="w-full bg-[#222] border border-[#444] rounded-xl p-3 text-white outline-none focus:border-[#00ff9d] text-sm md:text-base"
-                    >
-                      <option value="easypaisa">Easypaisa</option>
-                      <option value="jazzcash">Jazzcash</option>
-                      <option value="meezan">Meezan Bank</option>
-                      <option value="bank">Other Bank Transfer</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-white/70 mb-2">Your Account / Phone Number</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. 03001234567"
-                      value={paymentFormState.phone}
-                      onChange={e => setPaymentFormState({...paymentFormState, phone: e.target.value})}
-                      className="w-full bg-[#222] border border-[#444] rounded-xl p-3 text-white outline-none focus:border-[#00ff9d] text-sm md:text-base"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm text-white/70 mb-2">Upload Payment Screenshot</label>
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      onChange={handlePaymentProofUpload}
-                      className="w-full bg-[#222] border border-[#444] rounded-xl p-2 text-white/70 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs md:file:text-sm file:font-semibold file:bg-[#333] file:text-white hover:file:bg-[#444]"
-                    />
-                    {paymentFormState.proof && (
-                      <div className="mt-3 text-sm text-[#00ff9d] flex items-center gap-2">
-                        <span>✓</span> Screenshot attached
+                {/* Split Responsive Container */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-8 w-full bg-neutral-900/40 p-5 md:p-8 rounded-3xl border border-neutral-800 backdrop-blur-md items-stretch">
+                  
+                  {/* Left Column: Premium Interactive Invoice Summary */}
+                  <div className="md:col-span-5 flex flex-col justify-between bg-black/40 p-6 rounded-2xl border border-neutral-800/80 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 w-32 h-32 bg-[#00ff9d] opacity-5 blur-3xl rounded-full"></div>
+                    <div>
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="w-2.5 h-2.5 rounded-full bg-[#00ff9d] animate-pulse"></span>
+                        <span className="text-[10px] font-mono text-[#00ff9d] uppercase tracking-[0.2em] font-bold">Xer0byte Secure Ledger</span>
                       </div>
-                    )}
-                  </div>
-                </div>
+                      
+                      <h4 className="text-xs uppercase font-extrabold text-neutral-400/80 tracking-widest mb-1 font-mono">Order Summary</h4>
+                      <h3 className="text-xl md:text-2xl font-black text-white capitalize leading-tight mb-2">
+                        {selectedPlanToUpgrade.replace('_', ' ')} Upgrade
+                      </h3>
+                      <p className="text-xs text-neutral-400 mb-6 font-mono">Token Period: {planTab === 'individual' ? 'Monthly Recurrent' : 'Yearly Enterprise License'}</p>
 
-                <button onClick={handlePaymentSubmit} disabled={isSubmittingPayment} className={`w-full py-4 rounded-xl font-bold transition-all shadow-xl active:scale-[0.98] text-lg disabled:opacity-50 ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>
-                  {isSubmittingPayment ? 'Submitting...' : 'Submit Payment Proof'}
-                </button>
+                      <div className="space-y-3.5 border-t border-b border-neutral-800 py-6 mb-6 font-mono text-xs md:text-sm">
+                        <div className="flex justify-between items-center text-neutral-300">
+                          <span>Base Allocation Fee:</span>
+                          <span>{currency === 'USD' ? '$' : 'Rs '}{prices[selectedPlanToUpgrade][currency]}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-neutral-300">
+                          <span>Sandbox Infrastructure setup:</span>
+                          <span className="text-[#00ff9d]/80 font-bold uppercase tracking-wider text-[11px]">Free</span>
+                        </div>
+                        <div className="flex justify-between items-center text-neutral-300">
+                          <span>Manual Verification Processing:</span>
+                          <span className="text-[#00ff9d]/80 font-bold uppercase tracking-wider text-[11px]">Included</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-end mb-6">
+                        <span className="text-xs font-mono uppercase tracking-widest text-neutral-400 font-bold">Total Amount Due:</span>
+                        <span className="text-2xl md:text-3xl font-black text-[#00ff9d] tracking-tight">
+                          {currency === 'USD' ? '$' : 'Rs '}{prices[selectedPlanToUpgrade][currency]}
+                        </span>
+                      </div>
+
+                      <div className="bg-neutral-900/70 p-3.5 rounded-xl border border-neutral-800 text-[11px] text-neutral-400 leading-relaxed font-mono">
+                        <div className="flex items-center gap-2 text-white font-bold mb-1 uppercase tracking-wider text-[10px]">
+                          <span>🔒 Encrypted Validation</span>
+                        </div>
+                        Verified directly by account agents and processed immediately within 1-5 minutes of submission.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Direct Native Ledger Transfer & Verification */}
+                  <div className="md:col-span-7 flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-lg font-black text-white mb-1">Direct Transfer Accounts</h3>
+                      <p className="text-xs text-neutral-400 mb-6">Send funds directly to one of these support accounts and submit the validating screenshot.</p>
+
+                      {/* Render Account Cards with Copy Action */}
+                      <div className="space-y-4 mb-6">
+                        {/* EasyPaisa Wallet Card */}
+                        <div className="relative group bg-neutral-900 border border-neutral-800 hover:border-[#00ff9d]/20 transition-all p-4 rounded-2xl flex items-center justify-between gap-4">
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 text-lg shrink-0 font-bold font-mono">
+                              EP
+                            </div>
+                            <div className="min-w-0">
+                              <span className="text-[10px] uppercase font-bold text-purple-400/90 tracking-widest block font-mono">Mobile Wallet (Easypaisa/Jazzcash)</span>
+                              <span className="text-sm md:text-base font-mono text-white tracking-widest block font-extrabold font-mono select-all">03294733140</span>
+                              <span className="text-[10px] text-neutral-500 font-mono block">Title: Muhammad House</span>
+                            </div>
+                          </div>
+                          <button 
+                            onClick={() => {
+                              copyToClipboard('03294733140');
+                              setCopiedField('easypaisa');
+                              setTimeout(() => setCopiedField(null), 2000);
+                            }}
+                            className={`px-3 py-2 rounded-xl border font-mono text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 select-none ${copiedField === 'easypaisa' ? 'bg-[#00ff9d]/10 border-[#00ff9d]/30 text-[#00ff9d]' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-neutral-300 hover:text-white'}`}
+                          >
+                            <Copy size={12} />
+                            <span>{copiedField === 'easypaisa' ? 'Copied' : 'Copy'}</span>
+                          </button>
+                        </div>
+
+                        {/* Meezan Islamic Bank Account Card */}
+                        <div className="relative group bg-neutral-900 border border-neutral-800 hover:border-[#00ff9d]/20 transition-all p-4 rounded-2xl">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex gap-3.5 min-w-0">
+                              <div className="w-10 h-10 rounded-xl bg-[#00b8ff]/10 flex items-center justify-center text-[#00b8ff] text-lg shrink-0 font-bold font-mono">
+                                MB
+                              </div>
+                              <div className="min-w-0 font-mono">
+                                <span className="text-[10px] uppercase font-bold text-[#00b8ff] tracking-widest block">Meezan Islamic Bank Account</span>
+                                <span className="text-sm md:text-base font-mono text-white tracking-wider block font-extrabold select-all">11320113622881</span>
+                                <span className="text-xs text-neutral-400 truncate block select-all mt-0.5">IBAN: PK46 MEZN 0011320113622881</span>
+                                <span className="text-[10px] text-neutral-500 block">Title: Muhammad House</span>
+                              </div>
+                            </div>
+                            
+                            <div className="flex flex-col gap-2 shrink-0 select-none">
+                              {/* Copy Account Button */}
+                              <button 
+                                onClick={() => {
+                                  copyToClipboard('11320113622881');
+                                  setCopiedField('meezan_no');
+                                  setTimeout(() => setCopiedField(null), 2000);
+                                }}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1 leading-none ${copiedField === 'meezan_no' ? 'bg-[#00ff9d]/15 border-[#00ff9d]/30 text-[#00ff9d]' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-neutral-300 hover:text-white'}`}
+                              >
+                                <span>{copiedField === 'meezan_no' ? 'Copied Account' : 'Copy Acc'}</span>
+                              </button>
+                              
+                              {/* Copy IBAN Button */}
+                              <button 
+                                onClick={() => {
+                                  copyToClipboard('PK46 MEZN 0011320113622881');
+                                  setCopiedField('meezan_iban');
+                                  setTimeout(() => setCopiedField(null), 2000);
+                                }}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1 leading-none ${copiedField === 'meezan_iban' ? 'bg-[#00ff9d]/15 border-[#00ff9d]/30 text-[#00ff9d]' : 'bg-neutral-800 border-neutral-700 hover:bg-neutral-700 text-neutral-300 hover:text-white'}`}
+                              >
+                                <span>{copiedField === 'meezan_iban' ? 'Copied IBAN' : 'Copy IBAN'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+
+                      {/* Step 2 Inputs */}
+                      <div className="space-y-4 mb-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs uppercase font-extrabold text-neutral-400 tracking-wider mb-2 font-mono">Payment Channel</label>
+                            <select 
+                              value={paymentFormState.method}
+                              onChange={e => setPaymentFormState({...paymentFormState, method: e.target.value})}
+                              className="w-full bg-neutral-900 border border-neutral-800 focus:border-[#00ff9d]/40 rounded-xl p-3 text-white outline-none text-sm md:text-base cursor-pointer hover:border-neutral-700 transition-all font-mono"
+                            >
+                              <option value="easypaisa">🌿 Easypaisa wallet</option>
+                              <option value="jazzcash">💸 Jazzcash wallet</option>
+                              <option value="meezan">🏛️ Meezan Islamic Bank</option>
+                              <option value="bank">🏦 Other Local Bank</option>
+                              <option value="other">🪐 External Gateway / Other</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs uppercase font-extrabold text-neutral-400 tracking-wider mb-2 font-mono">Sender Account Title / No</label>
+                            <input 
+                              type="text" 
+                              placeholder="e.g. Adnan Khan / 0345..."
+                              value={paymentFormState.phone}
+                              onChange={e => setPaymentFormState({...paymentFormState, phone: e.target.value})}
+                              className="w-full bg-neutral-900 border border-neutral-800 focus:border-[#00ff9d]/40 rounded-xl p-3 text-white outline-none text-sm md:text-base placeholder:text-neutral-600 transition-all font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Custom Modern Screenshot Drag Box */}
+                        <div>
+                          <label className="block text-xs uppercase font-extrabold text-neutral-400 tracking-wider mb-2 font-mono">Verification Image screenshot</label>
+                          <div className="relative group bg-neutral-950 border border-dashed border-neutral-800 hover:border-[#00ff9d]/40 transition-all rounded-2xl p-6 text-center cursor-pointer overflow-hidden min-h-[120px] flex flex-col items-center justify-center">
+                            <input 
+                              type="file" 
+                              accept="image/*"
+                              onChange={handlePaymentProofUpload}
+                              className="absolute inset-0 cursor-pointer opacity-0 z-10"
+                            />
+                            
+                            {paymentFormState.proof ? (
+                              <div className="flex items-center gap-4 z-20">
+                                <div className="relative w-16 h-16 rounded-xl overflow-hidden border border-neutral-800 shadow-md">
+                                  <img 
+                                    src={paymentFormState.proof} 
+                                    alt="Payment screenshot proof payload" 
+                                    className="w-full h-full object-cover" 
+                                    referrerPolicy="no-referrer"
+                                  />
+                                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center text-white text-xs font-mono">Proof</div>
+                                </div>
+                                <div className="text-left">
+                                  <span className="text-sm font-bold text-white block">Verification Screenshot attached</span>
+                                  <span className="text-xs text-[#00ff9d]/80 font-mono mt-0.5 block flex items-center gap-1 animate-pulse">
+                                    <span>●</span> Base64 scaled and encrypted successfully
+                                  </span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-center justify-center pointer-events-none select-none">
+                                <span className="text-2xl mb-1.5 shrink-0 select-none">📸</span>
+                                <span className="text-xs font-bold text-white uppercase tracking-wider block">Upload validation image</span>
+                                <span className="text-[10px] text-neutral-500 font-mono mt-0.5 block">Drag and drop or browse validation file here</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button 
+                      onClick={handlePaymentSubmit} 
+                      disabled={isSubmittingPayment} 
+                      className="w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider transition-all duration-300 shadow-lg select-none hover:shadow-xl active:scale-[0.98] disabled:opacity-40 bg-white text-black hover:bg-neutral-200"
+                    >
+                      {isSubmittingPayment ? 'Submitting proof...' : 'Verify Transfer & Activate Account'}
+                    </button>
+                  </div>
+
+                </div>
               </div>
             )}
           </div>
