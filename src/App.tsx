@@ -61,6 +61,48 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
   const [selectedAdminUser, setSelectedAdminUser] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'accounts' | 'subscriptions' | 'users' | 'conversations' | 'locations' | 'photos'>('overview');
   const [adminConvSearchDate, setAdminConvSearchDate] = useState('');
+  const [adminNewMsg, setAdminNewMsg] = useState('');
+  const [adminRole, setAdminRole] = useState<'ai' | 'user'>('ai');
+  const [isAdminSending, setIsAdminSending] = useState(false);
+  const adminChatEndRef1 = useRef<HTMLDivElement | null>(null);
+  const adminChatEndRef2 = useRef<HTMLDivElement | null>(null);
+
+  const handleAdminSendMessage = async (userId: string, conversationId: string) => {
+    if (!adminNewMsg.trim() || isAdminSending) return;
+    setIsAdminSending(true);
+    try {
+      await firestoreService.addMessage(userId, conversationId, {
+        role: adminRole,
+        text: adminNewMsg.trim()
+      });
+      setAdminNewMsg('');
+    } catch (err: any) {
+      console.error("Failed to send admin message:", err);
+      setAlertModal({ isOpen: true, message: `Error sending message: ${err.message || err}` });
+    } finally {
+      setIsAdminSending(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'overview' && adminChatEndRef1.current) {
+      try {
+        adminChatEndRef1.current.scrollIntoView({ behavior: 'smooth' });
+      } catch (e) {
+        // Fallback for some old environments
+      }
+    }
+  }, [convMessages, selectedConv, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'conversations' && adminChatEndRef2.current) {
+      try {
+        adminChatEndRef2.current.scrollIntoView({ behavior: 'smooth' });
+      } catch (e) {
+        // Fallback
+      }
+    }
+  }, [convMessages, selectedConv, activeTab]);
 
   useEffect(() => {
     if (!token) return;
@@ -281,19 +323,66 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 {selectedConv ? 'Chat History' : 'Select a conversation'}
               </div>
               <div className="flex-1 overflow-y-auto p-4 md:p-6 flex flex-col gap-4">
-                {selectedConv ? convMessages.map((msg) => (
-                  <div key={msg.id || Math.random()} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[80%] rounded-2xl px-5 py-3 ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'bg-transparent text-white' : 'bg-transparent text-black')}`}>
-                      <div className="text-xs opacity-50 mb-1">{msg.role === 'user' ? 'User' : 'AI'} - {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleString() : 'N/A'}</div>
-                      <div className="whitespace-pre-wrap">{msg.text}</div>
-                    </div>
-                  </div>
-                )) : (
+                {selectedConv ? (
+                  <>
+                    {convMessages.map((msg) => (
+                      <div key={msg.id || Math.random()} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] rounded-2xl px-5 py-3 ${msg.role === 'user' ? (theme === 'dark' ? 'bg-[#333] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'bg-transparent text-white' : 'bg-transparent text-black')}`}>
+                          <div className="text-xs opacity-50 mb-1">{msg.role === 'user' ? 'User' : 'AI'} - {msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleString() : 'N/A'}</div>
+                          <div className="whitespace-pre-wrap">{msg.text}</div>
+                        </div>
+                      </div>
+                    ))}
+                    <div ref={adminChatEndRef1} />
+                  </>
+                ) : (
                   <div className="h-full flex items-center justify-center opacity-50">
                     Click a conversation to view messages
                   </div>
                 )}
               </div>
+
+              {/* ADMIN SEND BOX */}
+              {selectedConv && (
+                <div className={`p-3 border-t ${theme === 'dark' ? 'border-[#333] bg-[#161616]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
+                  <div className="flex flex-wrap gap-2 mb-2 items-center justify-between">
+                    <span className="text-[10px] uppercase opacity-60 font-bold">Reply as:</span>
+                    <div className="flex rounded-md overflow-hidden border border-purple-500/30">
+                      <button 
+                        type="button"
+                        onClick={() => setAdminRole('ai')}
+                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                      >
+                        AI
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setAdminRole('user')}
+                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100'}`}
+                      >
+                        User
+                      </button>
+                    </div>
+                  </div>
+                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={adminNewMsg}
+                      onChange={(e) => setAdminNewMsg(e.target.value)}
+                      placeholder={`Send a message to user as ${adminRole.toUpperCase()}...`}
+                      disabled={isAdminSending}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm border focus:outline-none focus:ring-1 focus:ring-purple-500 ${theme === 'dark' ? 'bg-black border-[#333] text-white' : 'bg-white border-[#ccc] text-black'}`}
+                    />
+                    <button 
+                      type="submit"
+                      disabled={isAdminSending || !adminNewMsg.trim()}
+                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-50 shrink-0"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </form>
+                </div>
+              )}
             </div>
           </div>
         </>
@@ -425,6 +514,47 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                   {convMessages.length === 0 && (
                     <div className="text-center opacity-50 mt-10">No messages in this conversation.</div>
                   )}
+                  <div ref={adminChatEndRef2} />
+                </div>
+
+                {/* ADMIN SEND BOX */}
+                <div className={`p-3 border-t ${theme === 'dark' ? 'border-[#333] bg-[#161616]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
+                  <div className="flex flex-wrap gap-2 mb-2 items-center justify-between">
+                    <span className="text-[10px] uppercase opacity-60 font-bold">Reply as:</span>
+                    <div className="flex rounded-md overflow-hidden border border-purple-500/30">
+                      <button 
+                        type="button"
+                        onClick={() => setAdminRole('ai')}
+                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                      >
+                        AI
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setAdminRole('user')}
+                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100'}`}
+                      >
+                        User
+                      </button>
+                    </div>
+                  </div>
+                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={adminNewMsg}
+                      onChange={(e) => setAdminNewMsg(e.target.value)}
+                      placeholder={`Send a message to user as ${adminRole.toUpperCase()}...`}
+                      disabled={isAdminSending}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm border focus:outline-none focus:ring-1 focus:ring-purple-500 ${theme === 'dark' ? 'bg-black border-[#333] text-white' : 'bg-white border-[#ccc] text-black'}`}
+                    />
+                    <button 
+                      type="submit"
+                      disabled={isAdminSending || !adminNewMsg.trim()}
+                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-50 shrink-0"
+                    >
+                      <Send size={15} />
+                    </button>
+                  </form>
                 </div>
               </>
             ) : (
