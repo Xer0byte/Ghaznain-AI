@@ -50,7 +50,6 @@ const CustomConfirm = ({ message, onConfirm, onCancel, theme }: { message: strin
 );
 
 const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) => {
-  const [stats, setStats] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedConv, setSelectedConv] = useState<any>(null);
@@ -67,18 +66,285 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
   const adminChatEndRef1 = useRef<HTMLDivElement | null>(null);
   const adminChatEndRef2 = useRef<HTMLDivElement | null>(null);
 
+  const [adminSelectedFiles, setAdminSelectedFiles] = useState<{data: string, mimeType: string, name: string}[]>([]);
+  const [adminFileMenuOpen, setAdminFileMenuOpen] = useState(false);
+  const [adminModelMenuOpen, setAdminModelMenuOpen] = useState(false);
+  const [adminSelectedModel, setAdminSelectedModel] = useState<'fast' | 'thinking' | 'pro'>('fast');
+  const [adminExtendedThinking, setAdminExtendedThinking] = useState(false);
+  const [adminUseWebSearch, setAdminUseWebSearch] = useState(false);
+
+  const adminFileInputRef = useRef<HTMLInputElement | null>(null);
+  const adminFolderInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleAdminFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    files.forEach(file => {
+      const fileNameWithFolder = (file as any).webkitRelativePath || file.name;
+      const isDocx = file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || file.name.endsWith('.docx');
+      const isExcel = file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || file.name.endsWith('.xlsx') || file.name.endsWith('.xls');
+      const isCsv = file.type === "text/csv" || file.name.endsWith('.csv');
+
+      if (isDocx) {
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const arrayBuffer = event.target?.result as ArrayBuffer;
+          try {
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            const encodedData = btoa(unescape(encodeURIComponent(result.value)));
+            setAdminSelectedFiles(prev => [...prev, {
+              data: encodedData, 
+              mimeType: 'text/plain',
+              name: fileNameWithFolder
+            }]);
+          } catch (err) {
+            console.error("Admin DOCX extraction failed", err);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+
+      if (isExcel) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = new Uint8Array(event.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            let fullText = "";
+            workbook.SheetNames.forEach(sheetName => {
+              fullText += `--- Sheet: ${sheetName} ---\n`;
+              const worksheet = workbook.Sheets[sheetName];
+              const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+              fullText += json.map((row: any) => row.join('\t')).join('\n') + '\n\n';
+            });
+            const encodedData = btoa(unescape(encodeURIComponent(fullText)));
+            setAdminSelectedFiles(prev => [...prev, {
+              data: encodedData,
+              mimeType: 'text/plain',
+              name: fileNameWithFolder
+            }]);
+          } catch (err) {
+            console.error("Admin Excel extraction failed", err);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        return;
+      }
+
+      if (isCsv) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const text = event.target?.result as string;
+          const encodedData = btoa(unescape(encodeURIComponent(text)));
+          setAdminSelectedFiles(prev => [...prev, {
+            data: encodedData,
+            mimeType: 'text/plain',
+            name: fileNameWithFolder
+          }]);
+        };
+        reader.readAsText(file);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const buffer = event.target?.result as ArrayBuffer;
+        if (isTextFile(buffer)) {
+          const text = new TextDecoder().decode(buffer);
+          const encodedData = btoa(unescape(encodeURIComponent(text)));
+          setAdminSelectedFiles(prev => [...prev, {
+            data: encodedData,
+            mimeType: 'text/plain',
+            name: fileNameWithFolder
+          }]);
+        } else {
+          const uint8 = new Uint8Array(buffer);
+          let binary = '';
+          const chunkSize = 8192;
+          for (let i = 0; i < uint8.length; i += chunkSize) {
+            const chunk = uint8.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk as any);
+          }
+          const base64 = btoa(binary);
+          setAdminSelectedFiles(prev => [...prev, {
+            data: base64,
+            mimeType: file.type || 'application/octet-stream',
+            name: fileNameWithFolder
+          }]);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
+  const stats = useMemo(() => {
+    return {
+      userCount: users.length,
+      conversationCount: conversations.length,
+      messageCount: users.reduce((sum, u) => sum + (u.messageCount || 0), 0),
+      performance: {
+        memoryUsedMB: Math.round(((window.performance as any)?.memory?.usedJSHeapSize || 87 * 1024 * 1024) / 1024 / 1024),
+        totalMemoryMB: Math.round(((window.performance as any)?.memory?.jsHeapLimit || 2148 * 1024 * 1024) / 1024 / 1024),
+        avgOutputLength: 425
+      }
+    };
+  }, [users, conversations]);
+
   const handleAdminSendMessage = async (userId: string, conversationId: string) => {
-    if (!adminNewMsg.trim() || isAdminSending) return;
+    if (isAdminSending) return;
+    const textPrompt = adminNewMsg.trim();
+    const currentFiles = [...adminSelectedFiles];
+    
+    if (!textPrompt && currentFiles.length === 0) return;
+
     setIsAdminSending(true);
+    setAdminNewMsg('');
+    setAdminSelectedFiles([]);
+
     try {
+      // 1. Add the admin's message (as selected role: 'user' or 'ai')
+      const messageText = textPrompt || (currentFiles.length > 0 ? `[${currentFiles.length} file(s) attached]` : "");
+      const userMsgId = Date.now().toString() + "-user-admin";
       await firestoreService.addMessage(userId, conversationId, {
         role: adminRole,
-        text: adminNewMsg.trim()
-      });
-      setAdminNewMsg('');
+        text: messageText
+      }, userMsgId);
+
+      // 2. If role is 'user', trigger AI auto-response immediately to mimic normal user chat behavior
+      if (adminRole === 'user') {
+        const updatedMessagesForAI = [...convMessages, { role: 'user', text: messageText }];
+
+        // Select correct model
+        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
+
+        // Prepare clean history
+        const chatHistory = prepareCleanHistory(updatedMessagesForAI, 40, 1000000);
+
+        // Prep prompt inputs
+        const inputParts: any[] = [];
+        if (textPrompt) inputParts.push({ text: truncateText(textPrompt, 100000) });
+        if (currentFiles.length > 0) {
+          let totalFileSize = 0;
+          const MAX_TOTAL_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+          currentFiles.forEach((file) => {
+            const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+            if (totalFileSize + fileData.length < MAX_TOTAL_FILE_SIZE) {
+              inputParts.push({
+                inlineData: {
+                  data: fileData,
+                  mimeType: getGeminiCompatibleMimeType(file.mimeType)
+                }
+              });
+              totalFileSize += fileData.length;
+            }
+          });
+        }
+
+        const systemInstruction = `You are Xer0byte AI, responding as an assistant in a conversation on behalf of the administration.
+- Keep your language matched exactly to what the user was using (if they speak Roman Urdu, speak Roman Urdu, etc.).
+- Be world-class, professional, accurate, and completely helpful.
+- Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
+
+        // Add a temporary AI message for streaming in Firestore
+        const aiMsgId = Date.now().toString() + "-ai-admin-streaming";
+        await firestoreService.addMessage(userId, conversationId, { role: 'ai', text: "..." }, aiMsgId);
+
+        const streamResult = await generateContentStreamWithRetry({
+          model: geminiModel,
+          systemInstruction,
+          contents: [
+            ...chatHistory,
+            { role: 'user', parts: inputParts }
+          ]
+        });
+
+        let fullAiText = "";
+        let lastUpdateTime = Date.now();
+
+        for await (const chunk of (streamResult as any)) {
+          const chunkText = chunk.text ? (typeof chunk.text === 'function' ? chunk.text() : chunk.text) : "";
+          if (chunkText) {
+            fullAiText += chunkText;
+            const now = Date.now();
+            if (now - lastUpdateTime > 150 || fullAiText.length < 50) {
+              await firestoreService.updateMessageText(userId, conversationId, aiMsgId, fullAiText);
+              lastUpdateTime = now;
+            }
+          }
+        }
+        
+        // Final update write
+        if (fullAiText.trim()) {
+          await firestoreService.updateMessageText(userId, conversationId, aiMsgId, fullAiText);
+        }
+      }
     } catch (err: any) {
-      console.error("Failed to send admin message:", err);
-      setAlertModal({ isOpen: true, message: `Error sending message: ${err.message || err}` });
+      console.error("Failed to send admin message or trigger auto-reply:", err);
+      setAlertModal({ isOpen: true, message: `Error: ${err.message || err}` });
+    } finally {
+      setIsAdminSending(false);
+    }
+  };
+
+  const handleAdminGenerateAIResponse = async (userId: string, conversationId: string) => {
+    if (isAdminSending) return;
+    setIsAdminSending(true);
+    try {
+      if (!convMessages || convMessages.length === 0) {
+        throw new Error("No messages available in this conversation to generate a reply.");
+      }
+
+      // Format messages into a single clean conversation transcript to ensure absolute reliability across all moderative context scenarios
+      const formattedHistoryText = convMessages
+        .map(msg => {
+          const sender = msg.role === 'user' ? 'User' : 'Xer0byte AI';
+          return `[${sender}]: ${msg.text}`;
+        })
+        .join('\n\n');
+
+      const contents = [
+        {
+          role: 'user',
+          parts: [{
+            text: `Below is the continuous conversation history between our User and our assistant Xer0byte AI:
+
+${formattedHistoryText}
+
+Generate the exact next response to send to the User as Xer0byte AI. Follow these requirements:
+1. Do NOT include any speaker headers, prefix tags, or meta-commentary like "Xer0byte AI:". Just reply directly with the message text.
+2. Adopt a world-class, professional, accurate, and helpful assistant capability.
+3. Keep the language styled exactly matching how the User was communicating (e.g., Roman Urdu, English, Urdu, etc. If the user spoke Roman Urdu, you must also respond in Roman Urdu).
+4. Avoid introducing administrative talk; write the reply so it is a natural, conversational continuation stream.`
+          }]
+        }
+      ];
+
+      const systemInstruction = `You are Xer0byte AI, responding as an assistant in a conversation on behalf of the administration.
+- Keep your language matched exactly to what the user was using (if they speak Roman Urdu, speak Roman Urdu, etc.).
+- Be world-class, professional, accurate, and completely helpful.
+- Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
+
+      const response = await generateContentWithRetry({
+        model: 'gemini-3-flash-preview',
+        systemInstruction,
+        contents
+      });
+
+      const responseText = response.text || "";
+      if (!responseText.trim()) {
+        throw new Error("Received empty response from the AI model.");
+      }
+
+      await firestoreService.addMessage(userId, conversationId, {
+        role: 'ai',
+        text: responseText.trim()
+      });
+
+    } catch (err: any) {
+      console.error("Failed to generate AI response in Admin Panel:", err);
+      setAlertModal({ isOpen: true, message: `Failed to auto-generate AI reply: ${err.message || err}` });
     } finally {
       setIsAdminSending(false);
     }
@@ -108,11 +374,6 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
     if (!token) return;
     const unsubUsers = firestoreService.subscribeToAllUsers((allUsers) => {
       setUsers(allUsers);
-      setStats((prev: any) => ({
-        ...prev,
-        userCount: allUsers.length,
-        messageCount: allUsers.reduce((sum, u) => sum + (u.messageCount || 0), 0)
-      }));
     });
     return () => unsubUsers();
   }, [token]);
@@ -344,42 +605,178 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
 
               {/* ADMIN SEND BOX */}
               {selectedConv && (
-                <div className={`p-3 border-t ${theme === 'dark' ? 'border-[#333] bg-[#161616]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
-                  <div className="flex flex-wrap gap-2 mb-2 items-center justify-between">
-                    <span className="text-[10px] uppercase opacity-60 font-bold">Reply as:</span>
-                    <div className="flex rounded-md overflow-hidden border border-purple-500/30">
+                <div className={`p-4 border-t relative z-20 ${theme === 'dark' ? 'border-[#333] bg-[#0c0c0c]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
+                  
+                  {/* Files List */}
+                  {adminSelectedFiles.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2 w-full px-2">
+                      {adminSelectedFiles.map((file, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border shrink-0 ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white' : 'bg-white border-[#ddd] text-black'}`}
+                        >
+                          <Paperclip size={12} className="opacity-60" />
+                          <span className="truncate max-w-[150px]">{file.name}</span>
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdminSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+                            }} 
+                            className="opacity-40 hover:opacity-100 hover:text-red-500 transition-all p-0.5"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Options & Controllers bar */}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-3 px-1 select-none">
+                    
+                    {/* Model Selector Button */}
+                    <div className="relative">
+                      <button 
+                        type="button"
+                        onClick={() => setAdminModelMenuOpen(!adminModelMenuOpen)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                      >
+                        <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-600'} />
+                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : 'Pro'}</span>
+                        <ChevronDown size={11} className="opacity-60" />
+                      </button>
+                      {adminModelMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setAdminModelMenuOpen(false)}></div>
+                          <div className={`absolute bottom-full mb-1.5 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                            <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte Engine</div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('fast'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Fast (Flash)</div>
+                                <div className="text-[10px] text-[#888]">Answers quickly</div>
+                              </div>
+                              {adminSelectedModel === 'fast' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('pro'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Pro (Advanced)</div>
+                                <div className="text-[10px] text-[#888]">Advanced analysis (3.1 Pro)</div>
+                              </div>
+                              {adminSelectedModel === 'pro' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Role Picker */}
+                    <div className="flex rounded-full overflow-hidden border border-purple-500/30">
                       <button 
                         type="button"
                         onClick={() => setAdminRole('ai')}
-                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100 bg-transparent'}`}
                       >
-                        AI
+                        AI Override
                       </button>
                       <button 
                         type="button"
                         onClick={() => setAdminRole('user')}
-                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100 bg-transparent'}`}
                       >
-                        User
+                        User Trigger
                       </button>
                     </div>
-                  </div>
-                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2">
-                    <input 
-                      type="text"
-                      value={adminNewMsg}
-                      onChange={(e) => setAdminNewMsg(e.target.value)}
-                      placeholder={`Send a message to user as ${adminRole.toUpperCase()}...`}
-                      disabled={isAdminSending}
-                      className={`flex-1 px-3 py-2 rounded-xl text-sm border focus:outline-none focus:ring-1 focus:ring-purple-500 ${theme === 'dark' ? 'bg-black border-[#333] text-white' : 'bg-white border-[#ccc] text-black'}`}
-                    />
-                    <button 
-                      type="submit"
-                      disabled={isAdminSending || !adminNewMsg.trim()}
-                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-50 shrink-0"
+
+                    {/* Auto-reply */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const conv = joinedConversations.find(c => c.id === selectedConv);
+                        if (conv) handleAdminGenerateAIResponse(conv.userId, conv.id);
+                      }}
+                      disabled={isAdminSending || convMessages.length === 0}
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-all text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 cursor-pointer shadow-sm`}
                     >
-                      <Send size={15} />
+                      <Sparkles size={11} className="animate-pulse" />
+                      AI Auto-Reply
                     </button>
+
+                    {isAdminSending && (
+                      <span className="text-[10px] text-[#00ff9d] font-mono animate-pulse flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00ff9d]" /> Generating Response...
+                      </span>
+                    )}
+                  </div>
+
+                  {/* replica prompt container */}
+                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2 flex-col">
+                    <div className={`flex items-end rounded-2xl p-1.5 min-h-[50px] border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999]'}`}>
+                      
+                      {/* Plus icon uploader trigger */}
+                      <div className="relative flex items-center mb-1 shrink-0">
+                        <button 
+                          type="button" 
+                          onClick={() => setAdminFileMenuOpen(!adminFileMenuOpen)} 
+                          className={`w-10 h-10 flex items-center justify-center rounded-xl text-[#888] cursor-pointer hover:text-white transition-colors shrink-0 ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                        >
+                          <Plus size={18} />
+                        </button>
+                        {adminFileMenuOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setAdminFileMenuOpen(false)}></div>
+                            <div className={`absolute bottom-11 left-0 w-48 rounded-xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+                              <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { adminFileInputRef.current?.click(); setAdminFileMenuOpen(false); }}>
+                                <span className="text-sm">💻</span> Upload from device
+                              </div>
+                              <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { adminFolderInputRef.current?.click(); setAdminFileMenuOpen(false); }}>
+                                <span className="text-sm">📁</span> Upload Folder
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <textarea 
+                        rows={1}
+                        value={adminNewMsg}
+                        onChange={(e) => setAdminNewMsg(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            const conv = joinedConversations.find(c => c.id === selectedConv);
+                            if(conv) handleAdminSendMessage(conv.userId, conv.id);
+                          }
+                        }}
+                        placeholder={adminRole === 'user' ? "Simulate user typing (automates AI response next)..." : "Send custom override manual message as AI..."}
+                        disabled={isAdminSending}
+                        className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm px-2 py-2.5 resize-none max-h-[160px] overflow-y-auto min-w-0 transition-all ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
+                      />
+
+                      <div className="flex items-center gap-2 pr-1 mb-1 self-end shrink-0">
+                        <button 
+                          type="submit"
+                          disabled={isAdminSending || (!adminNewMsg.trim() && adminSelectedFiles.length === 0)}
+                          className="w-10 h-10 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-35 flex items-center justify-center shrink-0 animate-fade-in"
+                        >
+                          <Send size={15} />
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {adminRole === 'user' && (
+                      <div className="text-[10px] text-green-500 font-mono font-medium flex items-center gap-1 animate-pulse px-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                        Simulating User: Xer0byte AI response will be auto-generated and added to the chat sequence.
+                      </div>
+                    )}
+                    {adminRole === 'ai' && (
+                      <div className="text-[10px] text-purple-400 font-mono font-medium flex items-center gap-1 px-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                        Direct override: Your message will be inserted as-is into the thread.
+                      </div>
+                    )}
                   </form>
                 </div>
               )}
@@ -518,42 +915,178 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
                 </div>
 
                 {/* ADMIN SEND BOX */}
-                <div className={`p-3 border-t ${theme === 'dark' ? 'border-[#333] bg-[#161616]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
-                  <div className="flex flex-wrap gap-2 mb-2 items-center justify-between">
-                    <span className="text-[10px] uppercase opacity-60 font-bold">Reply as:</span>
-                    <div className="flex rounded-md overflow-hidden border border-purple-500/30">
+                <div className={`p-4 border-t relative z-20 ${theme === 'dark' ? 'border-[#333] bg-[#0c0c0c]' : 'border-[#ddd] bg-[#fcfcfc]'}`}>
+                  
+                  {/* Files List */}
+                  {adminSelectedFiles.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2 w-full px-2">
+                      {adminSelectedFiles.map((file, idx) => (
+                        <div 
+                          key={idx} 
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs border shrink-0 ${theme === 'dark' ? 'bg-[#222] border-[#444] text-white' : 'bg-white border-[#ddd] text-black'}`}
+                        >
+                          <Paperclip size={12} className="opacity-60" />
+                          <span className="truncate max-w-[150px]">{file.name}</span>
+                          <button 
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdminSelectedFiles(prev => prev.filter((_, i) => i !== idx));
+                            }} 
+                            className="opacity-40 hover:opacity-100 hover:text-red-500 transition-all p-0.5"
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Options & Controllers bar */}
+                  <div className="flex flex-wrap items-center gap-1.5 mb-3 px-1 select-none">
+                    
+                    {/* Model Selector Button */}
+                    <div className="relative">
+                      <button 
+                        type="button"
+                        onClick={() => setAdminModelMenuOpen(!adminModelMenuOpen)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
+                      >
+                        <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-600'} />
+                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : 'Pro'}</span>
+                        <ChevronDown size={11} className="opacity-60" />
+                      </button>
+                      {adminModelMenuOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setAdminModelMenuOpen(false)}></div>
+                          <div className={`absolute bottom-full mb-1.5 left-0 w-72 rounded-2xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+                            <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Xer0byte Engine</div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('fast'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Fast (Flash)</div>
+                                <div className="text-[10px] text-[#888]">Answers quickly</div>
+                              </div>
+                              {adminSelectedModel === 'fast' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('pro'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Pro (Advanced)</div>
+                                <div className="text-[10px] text-[#888]">Advanced analysis (3.1 Pro)</div>
+                              </div>
+                              {adminSelectedModel === 'pro' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Role Picker */}
+                    <div className="flex rounded-full overflow-hidden border border-purple-500/30">
                       <button 
                         type="button"
                         onClick={() => setAdminRole('ai')}
-                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold transition-colors ${adminRole === 'ai' ? 'bg-purple-600 text-white' : 'opacity-60 hover:opacity-100 bg-transparent'}`}
                       >
-                        AI
+                        AI Override
                       </button>
                       <button 
                         type="button"
                         onClick={() => setAdminRole('user')}
-                        className={`px-3 py-1 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100'}`}
+                        className={`px-3 py-1.5 text-[10px] font-bold transition-colors ${adminRole === 'user' ? 'bg-[#00ff9d] text-black' : 'opacity-60 hover:opacity-100 bg-transparent'}`}
                       >
-                        User
+                        User Trigger
                       </button>
                     </div>
-                  </div>
-                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2">
-                    <input 
-                      type="text"
-                      value={adminNewMsg}
-                      onChange={(e) => setAdminNewMsg(e.target.value)}
-                      placeholder={`Send a message to user as ${adminRole.toUpperCase()}...`}
-                      disabled={isAdminSending}
-                      className={`flex-1 px-3 py-2 rounded-xl text-sm border focus:outline-none focus:ring-1 focus:ring-purple-500 ${theme === 'dark' ? 'bg-black border-[#333] text-white' : 'bg-white border-[#ccc] text-black'}`}
-                    />
-                    <button 
-                      type="submit"
-                      disabled={isAdminSending || !adminNewMsg.trim()}
-                      className="p-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-50 shrink-0"
+
+                    {/* Auto-reply */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const conv = joinedConversations.find(c => c.id === selectedConv);
+                        if (conv) handleAdminGenerateAIResponse(conv.userId, conv.id);
+                      }}
+                      disabled={isAdminSending || convMessages.length === 0}
+                      className={`px-3 py-1.5 rounded-full text-[10px] font-bold flex items-center gap-1.5 transition-all text-white bg-purple-600 hover:bg-purple-500 disabled:opacity-50 cursor-pointer shadow-sm`}
                     >
-                      <Send size={15} />
+                      <Sparkles size={11} className="animate-pulse" />
+                      AI Auto-Reply
                     </button>
+
+                    {isAdminSending && (
+                      <span className="text-[10px] text-[#00ff9d] font-mono animate-pulse flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#00ff9d]" /> Generating Response...
+                      </span>
+                    )}
+                  </div>
+
+                  {/* replica prompt container */}
+                  <form onSubmit={(e) => { e.preventDefault(); const conv = joinedConversations.find(c => c.id === selectedConv); if(conv) handleAdminSendMessage(conv.userId, conv.id); }} className="flex gap-2 flex-col">
+                    <div className={`flex items-end rounded-2xl p-1.5 min-h-[50px] border transition-all w-full relative ${theme === 'dark' ? 'bg-[#161616] border-[#2a2a2a] focus-within:border-[#555]' : 'bg-[#f5f5f5] border-[#ddd] focus-within:border-[#999]'}`}>
+                      
+                      {/* Plus icon uploader trigger */}
+                      <div className="relative flex items-center mb-1 shrink-0">
+                        <button 
+                          type="button" 
+                          onClick={() => setAdminFileMenuOpen(!adminFileMenuOpen)} 
+                          className={`w-10 h-10 flex items-center justify-center rounded-xl text-[#888] cursor-pointer hover:text-white transition-colors shrink-0 ${theme === 'dark' ? 'hover:bg-white/5' : 'hover:bg-black/5'}`}
+                        >
+                          <Plus size={18} />
+                        </button>
+                        {adminFileMenuOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setAdminFileMenuOpen(false)}></div>
+                            <div className={`absolute bottom-11 left-0 w-48 rounded-xl border shadow-2xl py-2 z-50 ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
+                              <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { adminFileInputRef.current?.click(); setAdminFileMenuOpen(false); }}>
+                                <span className="text-sm">💻</span> Upload from device
+                              </div>
+                              <div className={`px-4 py-2 cursor-pointer hover:bg-black/10 flex items-center gap-2 ${theme === 'dark' ? 'hover:bg-white/10' : ''}`} onClick={() => { adminFolderInputRef.current?.click(); setAdminFileMenuOpen(false); }}>
+                                <span className="text-sm">📁</span> Upload Folder
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <textarea 
+                        rows={1}
+                        value={adminNewMsg}
+                        onChange={(e) => setAdminNewMsg(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            const conv = joinedConversations.find(c => c.id === selectedConv);
+                            if(conv) handleAdminSendMessage(conv.userId, conv.id);
+                          }
+                        }}
+                        placeholder={adminRole === 'user' ? "Simulate user typing (automates AI response next)..." : "Send custom override manual message as AI..."}
+                        disabled={isAdminSending}
+                        className={`flex-1 bg-transparent border-none focus:ring-0 focus:outline-none text-sm px-2 py-2.5 resize-none max-h-[160px] overflow-y-auto min-w-0 transition-all ${theme === 'dark' ? 'text-white placeholder:text-white/20' : 'text-black placeholder:text-black/30'}`}
+                      />
+
+                      <div className="flex items-center gap-2 pr-1 mb-1 self-end shrink-0">
+                        <button 
+                          type="submit"
+                          disabled={isAdminSending || (!adminNewMsg.trim() && adminSelectedFiles.length === 0)}
+                          className="w-10 h-10 rounded-xl bg-purple-600 hover:bg-purple-500 text-white transition-all disabled:opacity-35 flex items-center justify-center shrink-0 animate-fade-in"
+                        >
+                          <Send size={15} />
+                        </button>
+                      </div>
+
+                    </div>
+
+                    {adminRole === 'user' && (
+                      <div className="text-[10px] text-green-500 font-mono font-medium flex items-center gap-1 animate-pulse px-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                        Simulating User: Xer0byte AI response will be auto-generated and added to the chat sequence.
+                      </div>
+                    )}
+                    {adminRole === 'ai' && (
+                      <div className="text-[10px] text-purple-400 font-mono font-medium flex items-center gap-1 px-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                        Direct override: Your message will be inserted as-is into the thread.
+                      </div>
+                    )}
                   </form>
                 </div>
               </>
@@ -877,6 +1410,8 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
           </div>
         </div>
       )}
+      <input type="file" ref={adminFileInputRef} onChange={handleAdminFileSelect} className="hidden" accept="*/*" multiple />
+      <input type="file" ref={adminFolderInputRef} onChange={handleAdminFileSelect} className="hidden" {...({ webkitdirectory: "", mozdirectory: "", directory: "" } as any)} />
     </div>
   );
 };

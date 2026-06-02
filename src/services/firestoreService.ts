@@ -216,6 +216,15 @@ export const firestoreService = {
     }
   },
 
+  async updateMessageText(userId: string, conversationId: string, messageId: string, newText: string) {
+    const path = `users/${userId}/conversations/${conversationId}/messages`;
+    try {
+      await updateDoc(doc(db, path, messageId), { text: newText });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
+  },
+
   async deleteMessagesAfter(userId: string, conversationId: string, timestamp: any, inclusive: boolean = false) {
     const path = `users/${userId}/conversations/${conversationId}/messages`;
     try {
