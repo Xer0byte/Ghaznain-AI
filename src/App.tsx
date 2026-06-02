@@ -827,7 +827,7 @@ export default function App() {
   const handleGoogleSuccess = async () => {
     if (isGoogleLoading) return;
     setIsGoogleLoading(true);
-    setAuthError(null);
+    setAuthError('');
     try {
       const provider = new GoogleAuthProvider();
       // Add scopes for Google Drive
@@ -843,20 +843,19 @@ export default function App() {
       setModals(prev => ({ ...prev, signIn: false, signUp: false }));
     } catch (err: any) {
       console.error("Google Auth Error Detail:", err);
-      if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
-        let msg = err.message || 'Google login failed';
-        if (err.code === 'auth/unauthorized-domain') {
-          msg = "Security Fix Required: You must add this domain to 'Authorized Domains' in your Firebase Console -> Auth -> Settings.";
-        } else if (err.code === 'auth/popup-blocked') {
-          msg = "Your browser blocked the login popup. Please click 'Open Tab' above or enable popups for this site.";
-        } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
-          msg = "Firebase Config Error: Please verify your API Key and ensure Google Login is enabled in Firebase Console.";
-        }
-        setAuthError(msg);
-      } else {
-        // Just reset error if it was a simple cancellation
-        setAuthError(null);
+      let msg = err.message || 'Google login failed';
+      if (err.code === 'auth/unauthorized-domain') {
+        msg = "Security Fix Required: You must add this domain to 'Authorized Domains' in your Firebase Console -> Auth -> Settings.";
+      } else if (err.code === 'auth/popup-blocked') {
+        msg = "Your browser blocked the login popup. Please click 'Open Tab' above or enable popups for this site.";
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/configuration-not-found') {
+        msg = "Firebase Config Error: Please verify your API Key and ensure Google Login is enabled in Firebase Console.";
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        msg = "The login window was closed before completing sign-in. If you didn't close it, this may be due to browser sandbox restrictions in the iframe preview. Please try opening the app in a new tab using the 'Open Tab' option above or enable third-party cookies.";
+      } else if (err.code === 'auth/cancelled-popup-request') {
+        msg = "The login popup request was cancelled, possibly because multiple login attempts were initiated. Please try again.";
       }
+      setAuthError(msg);
     } finally {
       setIsGoogleLoading(false);
     }
@@ -1161,6 +1160,7 @@ export default function App() {
   const [selectedModel, setSelectedModel] = useState(() => {
     return localStorage.getItem('xer0byteSelectedModel') || 'fast';
   });
+  const [selectedTool, setSelectedTool] = useState<'image' | 'music' | 'learning' | 'ide' | null>(null);
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
   const [canvasContent, setCanvasContent] = useState('');
@@ -2414,6 +2414,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     // Create a final ID that we'll save to Firestore later
     const finalAiMsgId = Date.now().toString() + "-ai-final";
       
+      let customToolInstruction = "";
+      if (selectedTool === 'image') {
+        customToolInstruction = `\n- ACTIVE MODE STATUS (IMAGE GENERATOR LOCKED): The user has actively selected the Image Generation tool as the primary mode. YOU MUST interpret their prompt as an image description and ALWAYS trigger image generation using the exact format: [GENERATE_IMAGE: detailed descriptive prompt]. Do not output regular conversational text; immediately output the image tag!`;
+      } else if (selectedTool === 'music') {
+        customToolInstruction = `\n- ACTIVE MODE STATUS (MUSIC COMPOSER LOCKED): The user has actively selected the Music Composition tool as the primary mode. YOU MUST interpret their prompt as a description for the background track and ALWAYS trigger music composition using the exact format: [GENERATE_MUSIC: descriptive music prompt]. Do not output regular conversational text; immediately output the music tag!`;
+      } else if (selectedTool === 'learning') {
+        customToolInstruction = `\n- ACTIVE MODE STATUS (GUIDED LEARNING SECTOR LOCKED): The user has actively selected the Guided Learning tool as the primary mode. You must act as a structured, interactive tutor on their chosen topic, starting or continuing a guided learning session and asking them highly focused questions one-by-one to check their understanding.`;
+      } else if (selectedTool === 'ide') {
+        customToolInstruction = `\n- ACTIVE MODE STATUS (SANDBOX CODER LOCKED): The user has actively selected the Live Sandbox IDE tool as the primary mode in chat. You MUST act as an elite coding/software engineering model. Focus 100% on producing extremely robust, clean, modular, and production-ready code. Start or refine full-stack projects directly through your chat interfaces. Always present code beautifully.`;
+      }
+
       const systemInstruction = `You are Xer0byte AI, a world-class software engineer and multi-lingual expert assistant.
 - Your absolute priority is accuracy ("1 1 word thk hona chahiye").
 - LANGUAGE: Always match the user's language. If the user speaks Roman Urdu (Urdu written in English script) or Hindi/Urdu, you MUST respond in fluent and clear Roman Urdu. If they speak English, respond in English.
@@ -2430,7 +2441,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 - CODE QUALITY: Provide modular, production-ready, and efficient code.
 - PROACTIVE: Solve hidden problems and anticipate next steps.
 - TONE: Professional, efficient (Master of Neural Efficiency). Avoid fillers.
-- IF NOT REQUESTED: If no "download" or "file generation" is mentioned, just use standard markdown code blocks.`;
+- IF NOT REQUESTED: If no "download" or "file generation" is mentioned, just use standard markdown code blocks.${customToolInstruction}`;
       
       const streamResult = await generateContentStreamWithRetry({
         model: geminiModel,
@@ -4332,32 +4343,22 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                          if (user?.plan === 'free' && user?.role !== 'admin') {
-                            setModals(prev => ({ ...prev, upgradePro: true }));
-                            setIsModelMenuOpen(false);
-                            return;
-                          }
                           setSelectedModel('thinking'); 
                           setIsModelMenuOpen(false); 
                         }}>
                           <div>
-                            <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="font-medium flex items-center gap-2">Thinking</div>
                             <div className="text-xs text-[#888]">Solves complex problems</div>
                           </div>
                           {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
                         </div>
                         
                         <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                          if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
-                            setModals(prev => ({ ...prev, upgradePro: true }));
-                            setIsModelMenuOpen(false);
-                            return;
-                          }
                           setSelectedModel('pro'); 
                           setIsModelMenuOpen(false); 
                         }}>
                           <div>
-                            <div className="font-medium flex items-center gap-2">Pro {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="font-medium flex items-center gap-2">Pro</div>
                             <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
                           </div>
                           {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
@@ -4367,16 +4368,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         
                         <div className={`px-4 py-3 flex items-center justify-between`}>
                           <div>
-                            <div className="font-medium flex items-center gap-2">Extended thinking {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
+                            <div className="font-medium flex items-center gap-2">Extended thinking</div>
                             <div className="text-xs text-[#888]">Think longer for complex tasks</div>
                           </div>
                           <button onClick={(e) => { 
                             e.stopPropagation(); 
-                            if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
-                              setModals(prev => ({ ...prev, upgradePro: true }));
-                              setIsModelMenuOpen(false);
-                              return;
-                            }
                             setExtendedThinking(!extendedThinking); 
                           }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
                             <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
@@ -4429,41 +4425,75 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       <div className={`absolute bottom-full mb-1.5 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
                         <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Tools</div>
                         
-                        <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Create an image of "); setIsToolsMenuOpen(false); }}>
-                          <ImageIcon size={16} className="text-[#888]" />
-                          <div className="font-medium text-xs md:text-sm">Create image</div>
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'image' ? 'bg-[#00ff9d]/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'image' ? null : 'image'); setIsToolsMenuOpen(false); }}>
+                          <div className="flex items-center gap-3">
+                            <ImageIcon size={16} className={selectedTool === 'image' ? "text-[#00ff9d]" : "text-[#888]"} />
+                            <span className={`font-medium text-xs md:text-sm ${selectedTool === 'image' ? "text-[#00ff9d]" : ""}`}>Create image</span>
+                          </div>
+                          {selectedTool === 'image' && <Check size={14} className="text-[#00ff9d]" />}
                         </div>
                         
-                        <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                           setIsToolsMenuOpen(false);
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'ide' ? 'bg-[#00ff9d]/10' : ''}`} onClick={() => { 
                            if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
                            const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
                            if (!hasProAccess) {
                              setModals(prev => ({ ...prev, upgradePro: true }));
+                             setIsToolsMenuOpen(false);
                              return;
                            }
-                           setCanvasActiveProjectId(null); 
-                           setView('ide'); 
+                           setSelectedTool(selectedTool === 'ide' ? null : 'ide');
+                           setIsToolsMenuOpen(false); 
                         }}>
-                          <PenTool size={16} className="text-[#888]" />
-                          <div className="font-medium text-xs md:text-sm">Live Sandbox IDE</div>
-                        </div>
-                        
-                        <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Generate a 30-second cinematic orchestral track."); setIsToolsMenuOpen(false); }}>
-                          <Music size={16} className="text-[#888]" />
-                          <div className="font-medium text-xs md:text-sm flex items-center gap-2">
-                            Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                          <div className="flex items-center gap-3">
+                            <PenTool size={16} className={selectedTool === 'ide' ? "text-[#00ff9d]" : "text-[#888]"} />
+                            <span className={`font-medium text-xs md:text-sm ${selectedTool === 'ide' ? "text-[#00ff9d]" : ""}`}>Live Sandbox IDE Mode</span>
                           </div>
+                          {selectedTool === 'ide' && <Check size={14} className="text-[#00ff9d]" />}
                         </div>
                         
-                        <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("I want to learn something new. Please start a guided learning session, asking me questions one by one to test my knowledge on: "); setIsToolsMenuOpen(false); }}>
-                          <BookOpen size={16} className="text-[#888]" />
-                          <div className="font-medium text-xs md:text-sm">Guided Learning</div>
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'music' ? 'bg-blue-500/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'music' ? null : 'music'); setIsToolsMenuOpen(false); }}>
+                          <div className="flex items-center gap-3">
+                            <Music size={16} className={selectedTool === 'music' ? "text-blue-500" : "text-[#888]"} />
+                            <span className={`font-medium text-xs md:text-sm flex items-center gap-2 ${selectedTool === 'music' ? "text-blue-500" : ""}`}>
+                              Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                            </span>
+                          </div>
+                          {selectedTool === 'music' && <Check size={14} className="text-blue-500" />}
+                        </div>
+                        
+                        <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'learning' ? 'bg-emerald-500/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'learning' ? null : 'learning'); setIsToolsMenuOpen(false); }}>
+                          <div className="flex items-center gap-3">
+                            <BookOpen size={16} className={selectedTool === 'learning' ? "text-emerald-500" : "text-[#888]"} />
+                            <span className={`font-medium text-xs md:text-sm ${selectedTool === 'learning' ? "text-emerald-500" : ""}`}>Guided Learning</span>
+                          </div>
+                          {selectedTool === 'learning' && <Check size={14} className="text-emerald-500" />}
                         </div>
                       </div>
                     </>
                   )}
                 </div>
+
+                {selectedTool && (
+                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${
+                    selectedTool === 'image' ? (theme === 'dark' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700') :
+                    selectedTool === 'music' ? (theme === 'dark' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 font-extrabold' : 'bg-blue-50 border-blue-200 text-blue-700') :
+                    selectedTool === 'ide' ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 font-extrabold' : 'bg-purple-50 border-purple-200 text-purple-700') :
+                    (theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/30 text-[#00ff9d]' : 'bg-emerald-50 border-emerald-200 text-emerald-700')
+                  }`}>
+                    <span>
+                      {selectedTool === 'image' ? '🎨 Image Gen Active' :
+                       selectedTool === 'music' ? '🎵 Music Mode Active' :
+                       selectedTool === 'ide' ? '💻 Sandbox Coder Active' :
+                       '📚 Guided learning Active'}
+                    </span>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setSelectedTool(null); }}
+                      className="hover:text-red-500 p-0.5 rounded-full transition-all"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                )}
 
                 {/* Web Search pill */}
                 <button 
@@ -4791,32 +4821,22 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           </div>
                           
                           <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                            if (user?.plan === 'free' && user?.role !== 'admin') {
-                              setModals(prev => ({ ...prev, upgradePro: true }));
-                              setIsModelMenuOpen(false);
-                              return;
-                            }
                             setSelectedModel('thinking'); 
                             setIsModelMenuOpen(false); 
                           }}>
                             <div>
-                              <div className="font-medium flex items-center gap-2">Thinking {user?.plan === 'free' && user?.role !== 'admin' && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="font-medium flex items-center gap-2">Thinking</div>
                               <div className="text-xs text-[#888]">Solves complex problems</div>
                             </div>
                             {selectedModel === 'thinking' && <Check size={16} className="text-blue-500" />}
                           </div>
                           
                           <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                            if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
-                              setModals(prev => ({ ...prev, upgradePro: true }));
-                              setIsModelMenuOpen(false);
-                              return;
-                            }
                             setSelectedModel('pro'); 
                             setIsModelMenuOpen(false); 
                           }}>
                             <div>
-                              <div className="font-medium flex items-center gap-2">Pro {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="font-medium flex items-center gap-2">Pro</div>
                               <div className="text-xs text-[#888]">Advanced maths and code with 3.1 Pro</div>
                             </div>
                             {selectedModel === 'pro' && <Check size={16} className="text-blue-500" />}
@@ -4826,16 +4846,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           
                           <div className={`px-4 py-3 flex items-center justify-between`}>
                             <div>
-                              <div className="font-medium flex items-center gap-2">Extended thinking {((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') && <Lock size={12} className="text-[#888]" />}</div>
+                              <div className="font-medium flex items-center gap-2">Extended thinking</div>
                               <div className="text-xs text-[#888]">Think longer for complex tasks</div>
                             </div>
                             <button onClick={(e) => { 
                               e.stopPropagation(); 
-                              if ((user?.plan === 'free' || user?.plan === 'lite' || user?.plan === 'business_lite') && user?.role !== 'admin') {
-                                setModals(prev => ({ ...prev, upgradePro: true }));
-                                setIsModelMenuOpen(false);
-                                return;
-                              }
                               setExtendedThinking(!extendedThinking); 
                             }} className={`w-10 h-6 rounded-full transition-colors relative ${extendedThinking ? 'bg-blue-500' : (theme === 'dark' ? 'bg-[#444]' : 'bg-[#ccc]')}`}>
                               <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${extendedThinking ? 'translate-x-4' : ''}`}></div>
@@ -4888,41 +4903,75 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         <div className={`absolute bottom-full mb-1.5 left-0 w-56 rounded-2xl border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-bottom-2 ${theme === 'dark' ? 'bg-[#151515] border-[#222] text-white' : 'bg-white border-[#ddd] text-black'}`}>
                           <div className="px-4 py-2 text-xs font-semibold text-[#888] uppercase tracking-wider">Tools</div>
                           
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Create an image of "); setIsToolsMenuOpen(false); }}>
-                            <ImageIcon size={16} className="text-[#888]" />
-                            <div className="font-medium text-xs md:text-sm">Create image</div>
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'image' ? 'bg-[#00ff9d]/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'image' ? null : 'image'); setIsToolsMenuOpen(false); }}>
+                            <div className="flex items-center gap-3">
+                              <ImageIcon size={16} className={selectedTool === 'image' ? "text-[#00ff9d]" : "text-[#888]"} />
+                              <span className={`font-medium text-xs md:text-sm ${selectedTool === 'image' ? "text-[#00ff9d]" : ""}`}>Create image</span>
+                            </div>
+                            {selectedTool === 'image' && <Check size={14} className="text-[#00ff9d]" />}
                           </div>
                           
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { 
-                             setIsToolsMenuOpen(false);
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'ide' ? 'bg-[#00ff9d]/10' : ''}`} onClick={() => { 
                              if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
                              const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
                              if (!hasProAccess) {
                                setModals(prev => ({ ...prev, upgradePro: true }));
+                               setIsToolsMenuOpen(false);
                                return;
                              }
-                             setCanvasActiveProjectId(null); 
-                             setView('ide'); 
+                             setSelectedTool(selectedTool === 'ide' ? null : 'ide');
+                             setIsToolsMenuOpen(false); 
                           }}>
-                            <PenTool size={16} className="text-[#888]" />
-                            <div className="font-medium text-xs md:text-sm">Live Sandbox IDE</div>
-                          </div>
-                          
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("Generate a 30-second cinematic orchestral track."); setIsToolsMenuOpen(false); }}>
-                            <Music size={16} className="text-[#888]" />
-                            <div className="font-medium text-xs md:text-sm flex items-center gap-2">
-                              Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                            <div className="flex items-center gap-3">
+                              <PenTool size={16} className={selectedTool === 'ide' ? "text-[#00ff9d]" : "text-[#888]"} />
+                              <span className={`font-medium text-xs md:text-sm ${selectedTool === 'ide' ? "text-[#00ff9d]" : ""}`}>Live Sandbox IDE Mode</span>
                             </div>
+                            {selectedTool === 'ide' && <Check size={14} className="text-[#00ff9d]" />}
                           </div>
                           
-                          <div className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setInputText("I want to learn something new. Please start a guided learning session, asking me questions one by one to test my knowledge on: "); setIsToolsMenuOpen(false); }}>
-                            <BookOpen size={16} className="text-[#888]" />
-                            <div className="font-medium text-xs md:text-sm">Guided Learning</div>
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'music' ? 'bg-blue-500/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'music' ? null : 'music'); setIsToolsMenuOpen(false); }}>
+                            <div className="flex items-center gap-3">
+                              <Music size={16} className={selectedTool === 'music' ? "text-blue-500" : "text-[#888]"} />
+                              <span className={`font-medium text-[12px] md:text-sm flex items-center gap-2 ${selectedTool === 'music' ? "text-blue-500" : ""}`}>
+                                Create music <span className="bg-blue-500/20 text-blue-500 text-[9px] px-1.5 py-0.5 rounded-full uppercase font-bold">New</span>
+                              </span>
+                            </div>
+                            {selectedTool === 'music' && <Check size={14} className="text-blue-500" />}
+                          </div>
+                          
+                          <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'} ${selectedTool === 'learning' ? 'bg-emerald-500/10' : ''}`} onClick={() => { setSelectedTool(selectedTool === 'learning' ? null : 'learning'); setIsToolsMenuOpen(false); }}>
+                            <div className="flex items-center gap-3">
+                              <BookOpen size={16} className={selectedTool === 'learning' ? "text-emerald-500" : "text-[#888]"} />
+                              <span className={`font-medium text-xs md:text-sm ${selectedTool === 'learning' ? "text-emerald-500" : ""}`}>Guided Learning</span>
+                            </div>
+                            {selectedTool === 'learning' && <Check size={14} className="text-emerald-500" />}
                           </div>
                         </div>
                       </>
                     )}
                   </div>
+
+                  {selectedTool && (
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${
+                      selectedTool === 'image' ? (theme === 'dark' ? 'bg-amber-500/10 border-amber-500/30 text-amber-500' : 'bg-amber-50 border-amber-200 text-amber-700') :
+                      selectedTool === 'music' ? (theme === 'dark' ? 'bg-blue-500/10 border-blue-500/30 text-blue-400 font-extrabold' : 'bg-blue-50 border-blue-200 text-blue-700') :
+                      selectedTool === 'ide' ? (theme === 'dark' ? 'bg-purple-500/10 border-purple-500/30 text-purple-400 font-extrabold' : 'bg-purple-50 border-purple-200 text-purple-700') :
+                      (theme === 'dark' ? 'bg-emerald-500/10 border-emerald-500/30 text-[#00ff9d]' : 'bg-emerald-50 border-emerald-200 text-emerald-700')
+                    }`}>
+                      <span>
+                        {selectedTool === 'image' ? '🎨 Image Gen Active' :
+                         selectedTool === 'music' ? '🎵 Music Mode Active' :
+                         selectedTool === 'ide' ? '💻 Sandbox Coder Active' :
+                         '📚 Guided learning Active'}
+                      </span>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setSelectedTool(null); }}
+                        className="hover:text-red-500 p-0.5 rounded-full transition-all"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Web Search pill */}
                   <button 

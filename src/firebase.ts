@@ -1,7 +1,14 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
-import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { initializeFirestore, doc, getDocFromServer, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+
+// Silence verbose internal Firebase SDK warnings (like "Could not reach Cloud Firestore backend") on sandboxed environments
+try {
+  setLogLevel('error');
+} catch (e) {
+  console.warn("Failed to set Firestore log-level:", e);
+}
 
 const getEnvVar = (key: string) => {
   // Use Vite's import.meta.env for VITE_ prefixed variables
