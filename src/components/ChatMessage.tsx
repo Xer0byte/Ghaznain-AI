@@ -101,7 +101,7 @@ const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; 
   };
 
   return (
-    <div className="relative my-6 rounded-xl overflow-hidden border border-[#eee] dark:border-[#222] shadow-sm">
+    <div className="not-prose relative my-6 w-full max-w-full overflow-hidden rounded-xl border border-[#eee] dark:border-[#222] shadow-sm font-sans">
       {/* Sleek Toolbar Header */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#f6f6f6] dark:bg-[#121212] border-b border-[#eee] dark:border-[#222] select-none">
         <div className="flex items-center gap-2">
@@ -135,7 +135,7 @@ const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; 
       <div className="relative w-full overflow-hidden">
         <SyntaxHighlighter
           style={theme === 'dark' ? vscDarkPlus : prism}
-          language={lang || 'typescript'}
+          language={lang || 'plaintext'}
           PreTag="div"
           customStyle={{
             margin: 0,
@@ -164,15 +164,17 @@ const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; them
           const match = /language-(\w+)/.exec(className || '');
           const lang = match ? match[1] : '';
           
-          if (!inline && match) {
+          const isInline = inline || (!className && !String(children).includes('\n'));
+          
+          if (!isInline) {
             return (
-              <CodeBlock lang={lang} theme={theme}>
+              <CodeBlock lang={lang || 'plaintext'} theme={theme}>
                 {String(children).replace(/\n$/, '')}
               </CodeBlock>
             );
           }
           return (
-            <code className={`${className} px-1.5 py-0.5 rounded-md ${theme === 'dark' ? 'bg-white/10 text-[#00ff9d]' : 'bg-black/5 text-[#006633] font-semibold'}`} {...props}>
+            <code className={`${className || ''} px-1.5 py-0.5 rounded-md ${theme === 'dark' ? 'bg-white/10 text-[#00ff9d]' : 'bg-black/5 text-[#006633] font-semibold'}`} {...props}>
               {children}
             </code>
           );
@@ -260,7 +262,7 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
           </div>
         )}
 
-        <div className={`${compact ? 'p-3 text-xs md:text-sm' : 'p-4 md:p-5 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group transition-all border ${
+        <div className={`${compact ? 'p-3 text-xs md:text-sm' : 'p-4 md:p-5 text-[15px] md:text-[16px]'} rounded-2xl md:rounded-3xl leading-relaxed relative group transition-all border w-full max-w-full min-w-0 overflow-hidden ${
           msg.role === 'user' 
             ? (theme === 'dark' 
                 ? 'bg-[#222] border-[#333] text-white shadow-lg' 
