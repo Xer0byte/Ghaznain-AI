@@ -74,6 +74,19 @@ export const firestoreService = {
     }
   },
 
+  subscribeToUserProfile(userId: string, callback: (profile: any) => void) {
+    const path = `users/${userId}`;
+    return onSnapshot(doc(db, path), (docSnap) => {
+      if (docSnap.exists()) {
+        callback({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        callback(null);
+      }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    });
+  },
+
   async testConnection() {
     try {
       await getDocFromServer(doc(db, 'test', 'connection'));

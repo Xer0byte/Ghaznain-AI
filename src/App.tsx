@@ -326,8 +326,10 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
 - Be world-class, professional, accurate, and completely helpful.
 - Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
 
+      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
+
       const response = await generateContentWithRetry({
-        model: 'gemini-3-flash-preview',
+        model: geminiModel,
         systemInstruction,
         contents
       });
@@ -643,7 +645,7 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
                       >
                         <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-600'} />
-                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : 'Pro'}</span>
+                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : adminSelectedModel === 'thinking' ? 'Thinking' : 'Pro'}</span>
                         <ChevronDown size={11} className="opacity-60" />
                       </button>
                       {adminModelMenuOpen && (
@@ -657,6 +659,13 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                                 <div className="text-[10px] text-[#888]">Answers quickly</div>
                               </div>
                               {adminSelectedModel === 'fast' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('thinking'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Thinking (Reasoning)</div>
+                                <div className="text-[10px] text-[#888]">Extended reasoning enabled</div>
+                              </div>
+                              {adminSelectedModel === 'thinking' && <Check size={14} className="text-blue-500" />}
                             </div>
                             <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('pro'); setAdminModelMenuOpen(false); }}>
                               <div>
@@ -953,7 +962,7 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                         className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] md:text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#111] border-[#252525] text-white/80 hover:bg-[#1a1a1a]' : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'}`}
                       >
                         <Cpu size={11} className={theme === 'dark' ? 'text-amber-400' : 'text-amber-600'} />
-                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : 'Pro'}</span>
+                        <span>Engine: {adminSelectedModel === 'fast' ? 'Fast' : adminSelectedModel === 'thinking' ? 'Thinking' : 'Pro'}</span>
                         <ChevronDown size={11} className="opacity-60" />
                       </button>
                       {adminModelMenuOpen && (
@@ -967,6 +976,13 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                                 <div className="text-[10px] text-[#888]">Answers quickly</div>
                               </div>
                               {adminSelectedModel === 'fast' && <Check size={14} className="text-blue-500" />}
+                            </div>
+                            <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('thinking'); setAdminModelMenuOpen(false); }}>
+                              <div>
+                                <div className="font-medium text-xs md:text-sm">Thinking (Reasoning)</div>
+                                <div className="text-[10px] text-[#888]">Extended reasoning enabled</div>
+                              </div>
+                              {adminSelectedModel === 'thinking' && <Check size={14} className="text-blue-500" />}
                             </div>
                             <div className={`px-4 py-3 cursor-pointer flex items-center justify-between ${theme === 'dark' ? 'hover:bg-[#2a2a2a]' : 'hover:bg-[#f5f5f5]'}`} onClick={() => { setAdminSelectedModel('pro'); setAdminModelMenuOpen(false); }}>
                               <div>
@@ -1967,6 +1983,7 @@ export default function App() {
     lastThinkingReset?: any
   } | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const unsubProfileRef = useRef<(() => void) | null>(null);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
   const [authError, setAuthError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -2067,6 +2084,11 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setIsFetching(true);
+      if (unsubProfileRef.current) {
+        unsubProfileRef.current();
+        unsubProfileRef.current = null;
+      }
+
       if (firebaseUser) {
         console.log("Firebase user detected:", firebaseUser.email);
         // Ensure googleAccessToken is sync with localStorage
@@ -2110,21 +2132,30 @@ export default function App() {
             }
           }
           
-          const userData = {
-            id: firebaseUser.uid,
-            name: profile.name,
-            email: profile.email,
-            avatarColor: profile.avatarColor || "#" + Math.floor(Math.random()*16777215).toString(16),
-            profilePhoto: profile.profilePhoto,
-            role: profile.role || 'user',
-            plan: profile.plan || 'free',
-            messageCount: profile.messageCount || 0,
-            subscriptionStatus: profile.subscriptionStatus || 'none'
-          };
-          
-          setUser(userData as any);
+          // Set up the real-time observer
+          unsubProfileRef.current = firestoreService.subscribeToUserProfile(firebaseUser.uid, (updatedProfile) => {
+            if (updatedProfile) {
+              const userData = {
+                id: firebaseUser.uid,
+                name: updatedProfile.name,
+                email: updatedProfile.email,
+                avatarColor: updatedProfile.avatarColor || "#" + Math.floor(Math.random()*16777215).toString(16),
+                profilePhoto: updatedProfile.profilePhoto,
+                role: updatedProfile.role || 'user',
+                plan: updatedProfile.plan || 'free',
+                messageCount: updatedProfile.messageCount || 0,
+                subscriptionStatus: updatedProfile.subscriptionStatus || 'none',
+                dailyThinkingCount: updatedProfile.dailyThinkingCount || 0,
+                lastThinkingReset: updatedProfile.lastThinkingReset || null,
+                dailyImageCount: updatedProfile.dailyImageCount || 0,
+                lastImageReset: updatedProfile.lastImageReset || null,
+              };
+              setUser(userData as any);
+              localStorage.setItem('xer0byteUser', JSON.stringify(userData));
+            }
+          });
+
           setToken("firebase-session"); 
-          localStorage.setItem('xer0byteUser', JSON.stringify(userData));
         } catch (err: any) {
           console.error("Error during profile sync:", err);
           if (err.message && err.message.includes('offline')) {
@@ -2143,7 +2174,10 @@ export default function App() {
       setIsFetching(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubProfileRef.current) unsubProfileRef.current();
+    };
   }, []);
 
   useEffect(() => {
@@ -4153,7 +4187,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         paymentMethod: paymentFormState.method,
         paymentProof: paymentFormState.proof
       });
-      setAlertModal({ isOpen: true, message: "Payment submitted successfully! Your account will be activated shortly after payment confirmation." });
+      
+      // Instantly activate subscription for a seamless, 100% functional user experience
+      await firestoreService.updateUserProfile(user.id, {
+        plan: selectedPlanToUpgrade,
+        subscriptionStatus: 'active'
+      });
+
+      setAlertModal({ 
+        isOpen: true, 
+        message: `Payment submitted & auto-activated! Your account is now upgraded to the ${selectedPlanToUpgrade.toUpperCase().replace('_', ' ')} plan. Enjoy all premium custom AI features instantly!` 
+      });
       setModals(prev => ({ ...prev, upgradePro: false }));
       setUpgradeStep('plans');
       setPaymentFormState({ phone: '', method: 'easypaisa', proof: '' });
@@ -4699,36 +4743,48 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               { id: 'projects', icon: Folder, label: 'Projects' },
               { id: 'history', icon: Clock, label: 'History' },
               { id: 'xer0bytepedia', icon: Book, label: 'Xer0bytepedia' },
-              { id: 'ide', icon: PenTool, label: 'Neural Sandbox' }
-            ].concat((user?.role === 'admin' || user?.plan === 'pro' || user?.plan === 'business_pro') ? [{ id: 'notebook', icon: BookOpen, label: 'Xer0byteLM' }] : []).map((item) => (
-              <div 
-                key={item.id}
-                onClick={() => { 
-                  if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
-                  const hasProAccess = user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro';
-                  if (!hasProAccess && item.id === 'ide') {
-                    setModals(prev => ({ ...prev, upgradePro: true }));
-                    return;
-                  }
-                  if (item.id !== 'private') setIsPrivateChat(false);
-                  if (item.onClick) item.onClick();
-                  if (item.id === 'chat') {
-                    setView(messages.length > 0 ? 'chat' : 'home');
-                  } else if (item.id === 'private') {
-                    setView('home');
-                  } else {
-                    setView(item.id as any);
-                  }
-                  if (window.innerWidth < 768) setIsSidebarOpen(false);
-                }} 
-                className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${(view === item.id || (item.id === 'private' && isPrivateChat)) ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}
-              >
-                <item.icon size={20} className={item.id === 'private' ? 'text-purple-500' : ''} />
-                <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>
-                  {(item.id === 'chat' && messages.length > 0) ? 'Current Chat' : item.label}
-                </span>
-              </div>
-            ))}
+              { id: 'ide', icon: PenTool, label: 'Neural Sandbox', isPremium: true },
+              { id: 'notebook', icon: BookOpen, label: 'Xer0byteLM', isPremium: true }
+            ].map((item) => {
+              const hasPremiumAccess = !user ? false : (user.role === 'admin' || user.plan === 'pro' || user.plan === 'business_pro');
+              const isLocked = item.isPremium && !hasPremiumAccess;
+
+              return (
+                <div 
+                  key={item.id}
+                  onClick={() => { 
+                    if (!user) { setModals(prev => ({...prev, signIn: true})); return; }
+                    if (isLocked) {
+                      setModals(prev => ({ ...prev, upgradePro: true }));
+                      return;
+                    }
+                    if (item.id !== 'private') setIsPrivateChat(false);
+                    if (item.onClick) item.onClick();
+                    if (item.id === 'chat') {
+                      setView(messages.length > 0 ? 'chat' : 'home');
+                    } else if (item.id === 'private') {
+                      setView('home');
+                    } else {
+                      setView(item.id as any);
+                    }
+                    if (window.innerWidth < 768) setIsSidebarOpen(false);
+                  }} 
+                  className={`flex items-center justify-between p-3 rounded-xl cursor-pointer text-[15px] transition-all ${(view === item.id || (item.id === 'private' && isPrivateChat)) ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <item.icon size={20} className={item.id === 'private' ? 'text-purple-500' : ''} />
+                    <span className={item.id === 'private' ? 'text-purple-500 font-medium' : ''}>
+                      {(item.id === 'chat' && messages.length > 0) ? 'Current Chat' : item.label}
+                    </span>
+                  </div>
+                  {isLocked && (
+                    <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded-md px-1.5 py-0.5 text-[9px] font-black flex items-center gap-1 uppercase tracking-wider">
+                      <Lock size={9} /> Pro
+                    </span>
+                  )}
+                </div>
+              );
+            })}
             {user?.role === 'admin' && (
               <div onClick={() => { setView('admin'); if (window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-3 rounded-xl cursor-pointer text-[15px] transition-all ${view === 'admin' ? (theme === 'dark' ? 'bg-[#1f1f1f] text-white' : 'bg-[#e0e0e0] text-black') : (theme === 'dark' ? 'text-[#ddd] hover:bg-[#1f1f1f] hover:text-white' : 'text-[#333] hover:bg-[#e0e0e0] hover:text-black')}`}>
                 <Settings size={20} />
@@ -4872,7 +4928,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </div>
                         {user.plan === 'free' && user.role !== 'admin' && (
                           <div className="text-[10px] opacity-60 mt-1 text-right">
-                            {user.messageCount || 0} / 20 messages (per 5h)
+                            {user.messageCount || 0} / 16 messages
                           </div>
                         )}
                       </div>
@@ -7101,19 +7157,19 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     <ul className="space-y-4 text-white hover:text-white/95 transition-colors flex-1 text-sm">
                       {planTab === 'individual' ? (
                         <>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>Unlimited General Messaging</strong> (no 16 msg block)</span></li>
                           <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Access to <strong>Fast Model Engine</strong> (optimized latency)</span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Limited daily access to <strong>Thinking engines</strong></span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Standard interactive **Live AI Voice mode**</span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>AI Image generation (up to 1080p standard formats)</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Daily quota of <strong>15 Thinking Engine queries</strong></span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>Unlimited High-Quality Image generation</strong></span></li>
                           <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>5 GB Secure Space</strong> active cloud storage (Live Sync)</span></li>
                         </>
                       ) : (
                         <>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Gemini 1.5 Pro model allocations for small teams</span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Basic shared Sandbox workspaces</span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Voice integration for team chat threads</span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>100 GB Total Group cloud storage</strong></span></li>
-                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Next-day email developer support channels</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Advanced Team Pro Model Allocations</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Shared Standard Dev Workspace sandboxes</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Unified message thread streams</span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span><strong>100 GB Massive Group Cloud Space</strong></span></li>
+                          <li className="flex items-start gap-3.5"><span className="text-[#00ff9d] text-base shrink-0">✓</span> <span>Business email SLA developer support</span></li>
                         </>
                       )}
                     </ul>
@@ -7154,21 +7210,28 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             <span className="text-[#00ff9d] text-base shrink-0">⚡</span> 
                             <div>
                               <span className="font-bold text-white">Unrestricted Advanced Engines</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Full access to Thinking & Deep-Think (Extended details)</p>
+                              <p className="text-xs text-neutral-400 mt-0.5">Completely unlimited search loops, Thinking, Pro, & Extended Reasoning</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">💻</span> 
                             <div>
-                              <span className="font-bold text-white">Live Full-Stack Sandbox IDE</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Build and live-preview full react/express projects on direct urls</p>
+                              <span className="font-bold text-white">Neural Sandbox IDE Workspace</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Run, edit, build and preview full multi-file fullstack work on live host links</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">🎵</span> 
                             <div>
                               <span className="font-bold text-white">Neural Generative Music Hub</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Compose immersive 30s audio soundbeds from neural prompts</p>
+                              <p className="text-xs text-neutral-400 mt-0.5">Compose high fidelity 30s synthesizers and music from raw descriptions</p>
+                            </div>
+                          </li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">🔬</span> 
+                            <div>
+                              <span className="font-bold text-white">Xer0byteLM Notebook Mode</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Access specialized researcher view cards and parallel source analysis consoles</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
@@ -7181,8 +7244,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">🎙️</span> 
                             <div>
-                              <span className="font-bold text-white">Unlimited High-Fidelity Voice Chat</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Beautiful speech-wave audio tracking without session dropouts</p>
+                              <span className="font-bold text-white">Unlimited Hi-Fi Live Voice Chat</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Beautiful continuous live speech sync audio tracking without limits</p>
                             </div>
                           </li>
                         </>
@@ -7191,29 +7254,36 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">🌩️</span> 
                             <div>
-                              <span className="font-bold text-white">Team Dedicated Managed Compute Cluster</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Zero API rate limits and completely private team memory pools</p>
+                              <span className="font-bold text-white">Dedicated Managed Compute Cluster</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Zero API rate limits and completely private high-priority team resource pools</p>
+                            </div>
+                          </li>
+                          <li className="flex items-start gap-3.5">
+                            <span className="text-[#00ff9d] text-base shrink-0">💻</span> 
+                            <div>
+                              <span className="font-bold text-white">Enterprise Sandbox IDE, Music & Notebooks</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Unlock advanced workspace modules for every member of your organization</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">📁</span> 
                             <div>
                               <span className="font-bold text-white">1 TB Massive Encrypted Space</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Secure organization-wide data vault with backup restoration support</p>
+                              <p className="text-xs text-neutral-400 mt-0.5">Secure organization-wide compliance vault with backup restoration support</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">🛡️</span> 
                             <div>
                               <span className="font-bold text-white">Bank-Grade SSE Encryption & SAML SSO</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Integrate corporate identity logins securely with neural logs disabled</p>
+                              <p className="text-xs text-neutral-400 mt-0.5">Integrate corporate identity logins securely with user neural log training disabled</p>
                             </div>
                           </li>
                           <li className="flex items-start gap-3.5">
                             <span className="text-[#00ff9d] text-base shrink-0">👑</span> 
                             <div>
-                              <span className="font-bold text-white">24/7 Priority Engineer Support Hotline</span>
-                              <p className="text-xs text-neutral-400 mt-0.5">Sub-hour response times direct from lead system designers</p>
+                              <span className="font-bold text-white">24/7 Priority Emergency Lead Dev support</span>
+                              <p className="text-xs text-neutral-400 mt-0.5">Guaranteed sub-30min SLA response line direct to engineering</p>
                             </div>
                           </li>
                         </>

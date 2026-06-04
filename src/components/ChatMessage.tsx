@@ -101,25 +101,25 @@ const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; 
   };
 
   return (
-    <div className="not-prose relative my-6 w-full max-w-full overflow-hidden rounded-xl border border-[#eee] dark:border-[#222] shadow-sm font-sans">
+    <div className="not-prose relative my-6 w-full max-w-full overflow-hidden rounded-xl border border-[#eee] dark:border-[#222] shadow-sm font-sans flex flex-col">
       {/* Sleek Toolbar Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#f6f6f6] dark:bg-[#121212] border-b border-[#eee] dark:border-[#222] select-none">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-2 bg-[#f6f6f6] dark:bg-[#121212] border-b border-[#eee] dark:border-[#222] select-none shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
           {/* Decorative Terminal Dots */}
-          <div className="flex gap-1.5">
+          <div className="flex gap-1.5 shrink-0">
             <span className="w-2.5 h-2.5 rounded-full bg-red-400 opacity-60"></span>
             <span className="w-2.5 h-2.5 rounded-full bg-amber-400 opacity-60"></span>
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 opacity-60"></span>
           </div>
           {lang && (
-            <span className="text-[10px] font-mono font-extrabold uppercase tracking-widest text-[#555] dark:text-white/40 ml-2">
+            <span className="text-[10px] font-mono font-extrabold uppercase tracking-widest text-[#555] dark:text-white/40 ml-2 truncate max-w-[120px]">
               {lang}
             </span>
           )}
         </div>
         <button 
           onClick={handleCopy}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-tight transition-all active:scale-95 border duration-150 ${
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold tracking-tight transition-all active:scale-95 border duration-150 shrink-0 select-none ${
             copied 
               ? 'bg-emerald-600 border-emerald-500 text-white' 
               : 'bg-white dark:bg-[#1e1e1e] border-gray-200 dark:border-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-white/5 shadow-sm'
@@ -131,8 +131,8 @@ const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; 
         </button>
       </div>
 
-      {/* Actual Highlighter Container */}
-      <div className="relative w-full overflow-hidden">
+      {/* Actual Highlighter Container with Horizontal Scrolling */}
+      <div className="relative w-full overflow-x-auto scrollbar-thin">
         <SyntaxHighlighter
           style={theme === 'dark' ? vscDarkPlus : prism}
           language={lang || 'plaintext'}
@@ -146,6 +146,7 @@ const CodeBlock = ({ children, lang, theme }: { children: string; lang: string; 
             padding: '1.25rem',
             overflowX: 'auto',
             border: 'none',
+            minWidth: '100%',
           }}
         >
           {children}
@@ -164,7 +165,7 @@ const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; them
           const match = /language-(\w+)/.exec(className || '');
           const lang = match ? match[1] : '';
           
-          const isInline = inline || (!className && !String(children).includes('\n'));
+          const isInline = !className && !String(children).includes('\n');
           
           if (!isInline) {
             return (
