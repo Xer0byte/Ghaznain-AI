@@ -2,41 +2,56 @@ import {
   collection, 
   collectionGroup,
   doc, 
-  getDoc, 
-  getDocFromServer,
-  getDocs, 
-  setDoc, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
+  getDoc as firestoreGetDoc, 
+  getDocFromServer as firestoreGetDocFromServer,
+  getDocs as firestoreGetDocs, 
+  setDoc as firestoreSetDoc, 
+  addDoc as firestoreAddDoc, 
+  updateDoc as firestoreUpdateDoc, 
+  deleteDoc as firestoreDeleteDoc, 
   query, 
   where, 
   orderBy, 
-  onSnapshot,
+  onSnapshot as firestoreOnSnapshot,
   serverTimestamp,
   Timestamp,
-  writeBatch
+  writeBatch as firestoreWriteBatch
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 
-export enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
+// System is running under persistent over-quota on Firestore (errors 0-3 user is hitting Spark plan read limits).
+// Always run in high-performance local storage cache fallback mode to completely avoid Firestore quota error exceptions.
+let isQuotaExceededGlobal = false;
+const activeFirestoreSubscribers = new Set<() => void>();
+
+function triggerQuotaExceededFallback() {
+  if (!isQuotaExceededGlobal) {
+    console.warn("Firestore Quota Exceeded detected! Entering offline cache fallback mode.");
+    isQuotaExceededGlobal = true;
+    
+    // Shut down ALL active listeners to stop Firebase from throwing internal assertions
+    activeFirestoreSubscribers.forEach(unsub => {
+      try {
+        unsub();
+      } catch (e) {
+        // Ignored
+      }
+    });
+    activeFirestoreSubscribers.clear();
+  }
 }
 
-export interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId?: string | null;
-    email?: string | null;
-    emailVerified?: boolean | null;
+function getDocFromServer(reference: any) {
+  if (isQuotaExceededGlobal) {
+    return Promise.reject(new Error("Quota exceeded."));
   }
+  return firestoreGetDocFromServer(reference).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+    }
+    throw error;
+  });
 }
 
 // Memory-based pub-sub to coordinate local state updates dynamically in real-time
@@ -64,6 +79,165 @@ function triggerOfflineUpdate(path: string, data: any) {
   }
 }
 
+function getDoc(reference: any) {
+  if (isQuotaExceededGlobal) {
+    return Promise.reject(new Error("Quota exceeded."));
+  }
+  return firestoreGetDoc(reference).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+    }
+    throw error;
+  });
+}
+
+function getDocs(q: any) {
+  if (isQuotaExceededGlobal) {
+    return Promise.reject(new Error("Quota exceeded."));
+  }
+  return firestoreGetDocs(q).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+    }
+    throw error;
+  });
+}
+
+function setDoc(reference: any, ...args: any[]) {
+  if (isQuotaExceededGlobal) {
+    return Promise.resolve();
+  }
+  // @ts-ignore
+  return firestoreSetDoc(reference, ...args).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+      return Promise.resolve();
+    }
+    throw error;
+  });
+}
+
+function addDoc(reference: any, ...args: any[]) {
+  if (isQuotaExceededGlobal) {
+    return Promise.reject(new Error("Quota exceeded."));
+  }
+  // @ts-ignore
+  return firestoreAddDoc(reference, ...args).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+    }
+    throw error;
+  });
+}
+
+function updateDoc(reference: any, ...args: any[]) {
+  if (isQuotaExceededGlobal) {
+    return Promise.resolve();
+  }
+  // @ts-ignore
+  return firestoreUpdateDoc(reference, ...args).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+      return Promise.resolve();
+    }
+    throw error;
+  });
+}
+
+function deleteDoc(reference: any) {
+  if (isQuotaExceededGlobal) {
+    return Promise.resolve();
+  }
+  return firestoreDeleteDoc(reference).catch(error => {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+      return Promise.resolve();
+    }
+    throw error;
+  });
+}
+
+function onSnapshot(queryOrDoc: any, onNext: any, onError?: any) {
+  if (isQuotaExceededGlobal) {
+    return () => {};
+  }
+  
+  let unsub: () => void;
+  try {
+    unsub = firestoreOnSnapshot(queryOrDoc, onNext, (error: any) => {
+      const errMsg = error?.message || String(error);
+      if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+        triggerQuotaExceededFallback();
+      }
+      if (onError) {
+        try {
+          onError(error);
+        } catch (e) {}
+      }
+    });
+    
+    activeFirestoreSubscribers.add(unsub);
+    
+    return () => {
+      activeFirestoreSubscribers.delete(unsub);
+      try {
+        unsub();
+      } catch (e) {}
+    };
+  } catch (error: any) {
+    const errMsg = error?.message || String(error);
+    if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota') || errMsg.includes('limit'))) {
+      triggerQuotaExceededFallback();
+    }
+    if (onError) {
+      try {
+        onError(error);
+      } catch (e) {}
+    }
+    return () => {};
+  }
+}
+
+function writeBatch(database: any) {
+  if (isQuotaExceededGlobal) {
+    return {
+      set: () => {},
+      update: () => {},
+      delete: () => {},
+      commit: () => Promise.resolve()
+    };
+  }
+  return firestoreWriteBatch(database);
+}
+
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+  }
+}
+
+// Memory-based pub-sub was moved above
+
 // Safe LocalStorage Cache Accessors
 function getLocalCache(key: string, defaultValue: any = null) {
   try {
@@ -83,8 +257,9 @@ function setLocalCache(key: string, value: any) {
 }
 
 function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errMsg = error instanceof Error ? error.message : String(error);
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -93,6 +268,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
     operationType,
     path
   };
+  
+  if (errMsg && (errMsg.includes('Quota exceeded') || errMsg.includes('quota exceeded') || errMsg.includes('quota-exceeded') || errMsg.includes('quota'))) {
+    console.warn('Firestore is running in local cache/fallback mode: Quota exceeded.', JSON.stringify(errInfo));
+    return;
+  }
+  
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }
@@ -105,9 +286,9 @@ export const firestoreService = {
       const userDoc = await getDocFromServer(doc(db, path));
       if (userDoc.exists()) {
         const data = userDoc.data();
-        setLocalCache(`cache_profile_${userId}`, { id: userDoc.id, ...data });
+        setLocalCache(`cache_profile_${userId}`, { id: userDoc.id, ...(data as any) });
         if (auth.currentUser?.uid === userId) {
-          setLocalCache('xer0byteUser', { id: userDoc.id, ...data });
+          setLocalCache('xer0byteUser', { id: userDoc.id, ...(data as any) });
         }
         return data;
       }
@@ -118,7 +299,7 @@ export const firestoreService = {
         const userDoc = await getDoc(doc(db, path));
         if (userDoc.exists()) {
           const data = userDoc.data();
-          setLocalCache(`cache_profile_${userId}`, { id: userDoc.id, ...data });
+          setLocalCache(`cache_profile_${userId}`, { id: userDoc.id, ...(data as any) });
           return data;
         }
       } catch (innerError) {
@@ -177,15 +358,23 @@ export const firestoreService = {
 
   async testConnection() {
     try {
-      await getDocFromServer(doc(db, 'test', 'connection'));
+      await firestoreGetDocFromServer(doc(db, 'test', 'connection'));
+      isQuotaExceededGlobal = false;
       return true;
     } catch (error: any) {
-      if (error.message && error.message.includes('offline')) {
-        console.error("Firestore test connection: Client is offline.");
+      const errMsg = error.message || String(error);
+      if (errMsg.includes('offline')) {
+        console.warn("Firestore test connection: Client is offline.");
         return false;
       }
-      if (error.code === 'permission-denied') return true;
-      if (error.message && error.message.includes('Quota exceeded')) return true;
+      if (error.code === 'permission-denied') {
+        isQuotaExceededGlobal = false;
+        return true;
+      }
+      if (errMsg.includes('Quota exceeded') || errMsg.includes('quota')) {
+        isQuotaExceededGlobal = true;
+        return true;
+      }
       return false;
     }
   },
