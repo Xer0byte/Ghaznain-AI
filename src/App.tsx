@@ -1135,10 +1135,10 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                         <td className="p-4 align-top w-[20%]">
                           <div className="flex items-center gap-3">
                             {u.profilePhoto ? (
-                              <img src={u.profilePhoto} alt={u.name} className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shrink-0 border border-white/10" />
+                              <img src={u.profilePhoto} alt={u.name || 'User'} className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover shrink-0 border border-white/10" />
                             ) : (
                               <div className="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center text-white font-bold text-lg md:text-xl shrink-0" style={{ backgroundColor: u.avatarColor }}>
-                                {u.name.charAt(0).toUpperCase()}
+                                {(u.name || 'U').charAt(0).toUpperCase()}
                               </div>
                             )}
                             <div className="min-w-0">
@@ -1262,10 +1262,10 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
                     <td className="p-4 align-top w-[30%] border-r border-dashed border-[#333]/20 dark:border-white/10">
                       <div className="flex items-center gap-3">
                         {u.profilePhoto ? (
-                          <img src={u.profilePhoto} alt={u.name} className="w-10 h-10 rounded-full object-cover shrink-0 border border-white/10" />
+                          <img src={u.profilePhoto} alt={u.name || 'User'} className="w-10 h-10 rounded-full object-cover shrink-0 border border-white/10" />
                         ) : (
                           <div className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0" style={{ backgroundColor: u.avatarColor }}>
-                            {u.name.charAt(0).toUpperCase()}
+                            {(u.name || 'U').charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="min-w-0">
@@ -4906,9 +4906,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               <div 
                 onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
                 className="w-11 h-11 rounded-full cursor-pointer flex items-center justify-center text-white font-bold text-lg overflow-hidden shrink-0 border border-white/10 shadow-md"
-                style={{ background: user && !user.profilePhoto ? user.avatarColor : '#444' }}
+                style={{ background: user && !user.profilePhoto ? (user.avatarColor || '#444') : '#444' }}
               >
-                {user?.profilePhoto ? <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" /> : (user ? user.name.charAt(0) : 'U')}
+                {user?.profilePhoto ? <img src={user.profilePhoto} alt={user?.name || 'User'} className="w-full h-full object-cover" /> : (user?.name ? user.name.charAt(0) : 'U')}
               </div>
               
               {/* User Menu Dropdown */}
@@ -4995,9 +4995,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   <div 
                     onClick={() => setModals({...modals, userMenu: !modals.userMenu})}
                     className="w-9 h-9 rounded-full cursor-pointer flex items-center justify-center text-white font-bold text-xs overflow-hidden shrink-0 shadow-lg border-2 border-white/10"
-                    style={{ background: user && !user.profilePhoto ? user.avatarColor : '#444' }}
+                    style={{ background: user && !user.profilePhoto ? (user.avatarColor || '#444') : '#444' }}
                   >
-                    {user?.profilePhoto ? <img src={user.profilePhoto} alt={user.name} className="w-full h-full object-cover" /> : (user ? user.name.charAt(0) : 'U')}
+                    {user?.profilePhoto ? <img src={user.profilePhoto} alt={user?.name || 'User'} className="w-full h-full object-cover" /> : (user?.name ? user.name.charAt(0) : 'U')}
                   </div>
                </div>
             )}
@@ -7004,10 +7004,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center py-3 gap-4 border-b ${theme === 'dark' ? 'border-[#222]' : 'border-[#ddd]'}`}>
                   <div className="flex items-center gap-4">
                     {user?.profilePhoto ? (
-                      <img src={user.profilePhoto} alt={user.name} className="w-12 h-12 md:w-14 md:h-14 rounded-full object-cover shrink-0 border border-white/10" />
+                      <img src={user.profilePhoto} alt={user?.name || 'User'} className="w-12 h-12 md:w-14 md:h-14 rounded-full object-cover shrink-0 border border-white/10" />
                     ) : (
-                      <div className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-xl font-bold text-white shrink-0" style={{ background: user ? user.avatarColor : '#555' }}>
-                        {user ? user.name.charAt(0) : 'U'}
+                      <div className="w-12 h-12 md:w-14 md:h-14 rounded-full flex items-center justify-center text-xl font-bold text-white shrink-0" style={{ background: user ? (user.avatarColor || '#555') : '#555' }}>
+                        {user?.name ? user.name.charAt(0) : 'U'}
                       </div>
                     )}
                     <div>
@@ -7681,8 +7681,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 {user?.profilePhoto ? (
                   <img src={user.profilePhoto} alt={user?.name || 'User'} className="w-16 h-16 md:w-20 md:h-20 rounded-full object-cover shrink-0 border border-white/10" />
                 ) : (
-                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center text-2xl md:text-3xl font-bold text-white shrink-0" style={{ background: user ? user.avatarColor : '#555' }}>
-                    {user ? user.name.charAt(0) : 'U'}
+                  <div className="w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center text-2xl md:text-3xl font-bold text-white shrink-0" style={{ background: user ? (user.avatarColor || '#555') : '#555' }}>
+                    {user?.name ? user.name.charAt(0) : 'U'}
                   </div>
                 )}
                 <div className="min-w-0">

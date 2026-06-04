@@ -51,6 +51,8 @@ async function testConnection() {
   } catch (error: any) {
     if (error.message && error.message.includes('the client is offline')) {
       console.error("Firestore Error: The client is offline. Please check your Firebase configuration or internet connection.");
+    } else if (error.message && error.message.includes('Quota exceeded')) {
+      console.warn("Firestore is running in local cache/fallback mode: Quota exceeded.");
     } else {
       console.error("Firestore Connection Test failed:", error.message);
     }
