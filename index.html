@@ -5,6 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Xer0byte-AI</title>
     <link rel="icon" type="image/png" href="favicon.png">
+    <script>
+      (function() {
+        var possibleSources = ['favicon.jpg', 'favicon.png'];
+        var imgIndex = 0;
+
+        function tryLoadFavicon() {
+          if (imgIndex >= possibleSources.length) return;
+          var img = new Image();
+          img.crossOrigin = 'anonymous'; 
+          img.src = possibleSources[imgIndex] + '?t=' + Date.now();
+          
+          img.onload = function() {
+            try {
+              var size = 128;
+              var canvas = document.createElement('canvas');
+              canvas.width = size;
+              canvas.height = size;
+              var ctx = canvas.getContext('2d');
+              
+              ctx.beginPath();
+              ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.clip();
+              
+              var minDim = Math.min(img.width, img.height);
+              var sx = (img.width - minDim) / 2;
+              var sy = (img.height - minDim) / 2;
+              ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, size, size);
+              
+              var link = document.querySelector("link[rel*='icon']");
+              if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.getElementsByTagName('head')[0].appendChild(link);
+              }
+              link.type = 'image/png';
+              link.href = canvas.toDataURL('image/png');
+            } catch (e) {
+              console.error("Failed to clip circular favicon:", e);
+            }
+          };
+
+          img.onerror = function() {
+            imgIndex++;
+            tryLoadFavicon();
+          };
+        }
+
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', tryLoadFavicon);
+        } else {
+          tryLoadFavicon();
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
