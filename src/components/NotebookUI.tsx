@@ -92,46 +92,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    const togglePlayPause = () => {
-    if (!audioRef.current) return;
-    if (isPlaying) {
-      audioRef.current.pause();
-      setIsPlaying(false);
-    } else {
-      audioRef.current.play();
-      setIsPlaying(true);
-    }
-  };
-
-  const handleSeek = (value: number) => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = value;
-    setCurrentTime(value);
-  };
-
-  const changePlaybackSpeed = (speed: number) => {
-    setPlaybackSpeed(speed);
-    if (audioRef.current) {
-      audioRef.current.playbackRate = speed;
-    }
-  };
-
-  const togglePitchPreservation = () => {
-    const newVal = !playbackPitch;
-    setPlaybackPitch(newVal);
-    if (audioRef.current && 'preservesPitch' in audioRef.current) {
-      (audioRef.current as any).preservesPitch = newVal;
-    }
-  };
-
-  const formatAudioTime = (time: number) => {
-    if (isNaN(time)) return "0:00";
-    const mins = Math.floor(time / 60);
-    const secs = Math.floor(time % 60);
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
-  };
-
-  return () => {
+    return () => {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current = null;
