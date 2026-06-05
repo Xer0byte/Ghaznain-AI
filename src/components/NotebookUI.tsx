@@ -164,7 +164,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
 
   // Firebase Subscriptions
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     
     // Subscribe to cloud data
     const unsubSources = firestoreService.subscribeToSources(user.id, (data) => {
@@ -182,7 +182,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       unsubNotes();
       unsubMessages();
     };
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     chatEndRef.current?.scrollTo({ top: chatEndRef.current.scrollHeight, behavior: 'smooth' });

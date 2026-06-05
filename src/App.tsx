@@ -2037,38 +2037,46 @@ export default function App() {
   const [hasAcceptedCookies, setHasAcceptedCookies] = useState(() => localStorage.getItem('xer0byteCookies') === 'true');
   const [showSplash, setShowSplash] = useState(true);
 
-    // Live Location Tracking
-    useEffect(() => {
-      if (!user) return;
-      
-      let watchId: number;
-      
-      const onPosSuccess = async (pos: GeolocationPosition) => {
-        const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-        console.log("Live location update:", coords);
-        try {
-          await firestoreService.updateUserProfile(user.id, { exactLocation: coords });
-        } catch (err) {
-          console.error("Failed to update user location in Firestore:", err);
-        }
-      };
+  const lastCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
 
-      const onPosError = (err: GeolocationPositionError) => {
-        console.warn("Location tracking error:", err.message);
-      };
-
-      if (navigator.geolocation) {
-        watchId = navigator.geolocation.watchPosition(onPosSuccess, onPosError, {
-          enableHighAccuracy: true,
-          maximumAge: 30000,
-          timeout: 27000
-        });
+  // Live Location Tracking
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    let watchId: number;
+    
+    const onPosSuccess = async (pos: GeolocationPosition) => {
+      const coords = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+      const last = lastCoordsRef.current;
+      if (last && Math.abs(last.lat - coords.lat) < 0.0001 && Math.abs(last.lon - coords.lon) < 0.0001) {
+        return;
       }
+      lastCoordsRef.current = coords;
       
-      return () => {
-        if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
-      };
-    }, [user]);
+      console.log("Live location update:", coords);
+      try {
+        await firestoreService.updateUserProfile(user.id, { exactLocation: coords });
+      } catch (err) {
+        console.error("Failed to update user location in Firestore:", err);
+      }
+    };
+
+    const onPosError = (err: GeolocationPositionError) => {
+      console.warn("Location tracking error:", err.message);
+    };
+
+    if (navigator.geolocation) {
+      watchId = navigator.geolocation.watchPosition(onPosSuccess, onPosError, {
+        enableHighAccuracy: true,
+        maximumAge: 30000,
+        timeout: 27000
+      });
+    }
+    
+    return () => {
+      if (watchId !== undefined) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [user?.id]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
@@ -2333,7 +2341,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       setConversations([]);
       return;
     }
@@ -2355,10 +2363,10 @@ export default function App() {
       unsubscribe();
       unsubSandbox();
     };
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (!user || !currentIdeConversationId) return;
+    if (!user?.id || !currentIdeConversationId) return;
     const unsubscribe = firestoreService.subscribeToSandboxMessages(user.id, currentIdeConversationId, (msgs) => {
       setIdeMessages(prev => {
         // Find if we have any active optimistic or streaming messages in IDE
@@ -2389,7 +2397,7 @@ export default function App() {
       });
     });
     return () => unsubscribe();
-  }, [user, currentIdeConversationId]);
+  }, [user?.id, currentIdeConversationId]);
 
   const groupConversationsByDate = (convs: any[]) => {
     const groups: { [key: string]: any[] } = {
@@ -2809,7 +2817,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   };
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       setProjects([]);
       setTasks([]);
       return;
@@ -2824,10 +2832,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       unsubProjects();
       unsubTasks();
     };
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
-    if (!user || !currentConversationId) {
+    if (!user?.id || !currentConversationId) {
       if (!isSendingRef.current) {
         setMessages([]);
       }
@@ -2884,7 +2892,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       setIsFetching(false);
     });
     return () => unsubscribe();
-  }, [user, currentConversationId]);
+  }, [user?.id, currentConversationId]);
 
   const handleEdit = (index: number) => {
     const msg = messages[index];
