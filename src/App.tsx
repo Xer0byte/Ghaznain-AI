@@ -6278,6 +6278,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                       className="bg-transparent text-[10px] sm:text-xs outline-none font-mono focus:text-[#00ff9d] appearance-none cursor-pointer pr-4"
                     >
                       <optgroup label="Popular">
+                        <option value="web">Web (HTML/CSS/JS)</option>
                         <option value="python">Python</option>
                         <option value="javascript">JavaScript</option>
                         <option value="typescript">TypeScript / React</option>

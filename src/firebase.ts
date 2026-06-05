@@ -38,9 +38,9 @@ const finalConfig = {
 const app = initializeApp(finalConfig);
 export const auth = getAuth(app);
 
-// Use initializeFirestore with experimentalForceLongPolling for better reliability in some environments
+// Use initializeFirestore with experimentalAutoDetectLongPolling for better reliability in some environments
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  experimentalAutoDetectLongPolling: true,
 }, finalConfig.firestoreDatabaseId); /* CRITICAL: The app will break without this line */
 
 // CRITICAL CONSTRAINT: When the application initially boots, call getFromServer to test the connection.
