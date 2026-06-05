@@ -221,7 +221,11 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
   
   const displayMessageText = useMemo(() => {
     if (!msg.text) return "";
-    return msg.text.replace(/\[ALLOW_ZIP_DOWNLOAD\]/g, '').trim();
+    let text = msg.text.replace(/\[ALLOW_ZIP_DOWNLOAD\]/g, '').trim();
+    // Strip multi-file workspace web blocks so they don't clutter the chat
+    text = text.replace(/\[FILE:\s*([\w.-]+)\]\n([\s\S]*?)(?=\n\[FILE:|$)/gi, '');
+    if (!text.trim() && msg.role === 'ai') return "_Workspace updated._";
+    return text.trim();
   }, [msg.text]);
 
   const parsedTables = useMemo(() => {

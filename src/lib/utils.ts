@@ -2,6 +2,24 @@ import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 
+export const extractUrlFromText = (text: string): string | null => {
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const match = text.match(urlRegex);
+  return match ? match[0] : null;
+};
+
+export const fetchWebsiteLinkContent = async (url: string): Promise<string | null> => {
+  try {
+    const response = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+    if (!response.ok) throw new Error(`Custom Proxy Fetch failed: ${response.statusText}`);
+    const htmlText = await response.text();
+    return htmlText || null;
+  } catch (error) {
+    console.error("Failed to fetch website content via /api/proxy :", error);
+    return null;
+  }
+};
+
 export const copyToClipboard = async (text: string) => {
   try {
     if (navigator.clipboard && window.isSecureContext) {

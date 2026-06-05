@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain } from 'lucide-react';
+import { Search, File as FileIcon, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -8,7 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db, firebaseAppConfig } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile, extractFilesFromMarkdown } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile, extractFilesFromMarkdown, extractUrlFromText, fetchWebsiteLinkContent } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
@@ -1850,6 +1850,11 @@ export default function App() {
   const [isCanvasRunning, setIsCanvasRunning] = useState(false);
   const [canvasMode, setCanvasMode] = useState<'edit' | 'split'>('edit');
   const [canvasLiveWeb, setCanvasLiveWeb] = useState(false);
+  const [ideFiles, setIdeFiles] = useState<{name: string, content: string}[]>([{name: 'index.html', content: ''}]);
+  const [ideActiveFile, setIdeActiveFile] = useState<string>('index.html');
+  const [ideDbLinked, setIdeDbLinked] = useState<boolean | null>(null);
+  const [showDbLinkModal, setShowDbLinkModal] = useState(false);
+  const [pendingIdeSubmitEvent, setPendingIdeSubmitEvent] = useState<boolean>(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [canvasActiveProjectId, setCanvasActiveProjectId] = useState<string | null>(null);
   
@@ -1949,11 +1954,33 @@ export default function App() {
   const processedSrcDoc = useMemo(() => {
     if (!canvasLiveWeb || !canvasContent) return canvasContent;
     const assetScript = `<script>window.Xer0Assets = ${JSON.stringify(sessionAssets)};</script>`;
-    if (canvasContent.includes('<head>')) {
-      return canvasContent.replace('<head>', '<head>' + assetScript);
+    
+    let finalDoc = canvasContent;
+    
+    // If we have multiple files, inject them into the HTML
+    const isWebLanguage = ['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase());
+    if (isWebLanguage && ideFiles.length > 1) {
+      const htmlFile = ideFiles.find(f => f.name.endsWith('.html'))?.content || canvasContent;
+      let injectedHead = '';
+      
+      ideFiles.forEach(f => {
+        if (f.name.endsWith('.css')) injectedHead += `<style>${f.content}</style>\n`;
+        if (f.name.endsWith('.js') || f.name.endsWith('.ts')) injectedHead += `<script type="module">${f.content}</script>\n`;
+      });
+      
+      if (htmlFile.includes('<head>')) {
+        finalDoc = htmlFile.replace('<head>', '<head>' + assetScript + injectedHead);
+      } else {
+        finalDoc = assetScript + injectedHead + htmlFile;
+      }
+      return finalDoc;
     }
-    return assetScript + canvasContent;
-  }, [canvasContent, sessionAssets, canvasLiveWeb]);
+
+    if (finalDoc.includes('<head>')) {
+      return finalDoc.replace('<head>', '<head>' + assetScript);
+    }
+    return assetScript + finalDoc;
+  }, [canvasContent, sessionAssets, canvasLiveWeb, ideFiles, canvasLanguage]);
 
   const [isLmThinking, setIsLmThinking] = useState(false);
   const [lmNotes, setLmNotes] = useState<{id: string, text: string}[]>([]);
@@ -2505,6 +2532,12 @@ Return "Code executed successfully with no output." if the program produces abso
   const handleIdeSubmit = async () => {
     if (!idePrompt.trim()) return;
     
+    if (['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) && ideDbLinked === null) {
+      setPendingIdeSubmitEvent(true);
+      setShowDbLinkModal(true);
+      return;
+    }
+
     // Check limits
     if (!user) {
       setModals(prev => ({ ...prev, signIn: true }));
@@ -2612,7 +2645,25 @@ Return "Code executed successfully with no output." if the program produces abso
       });
     }
 
-    const inputParts: any[] = [{ text: truncateText(originalPrompt, 100000) }];
+    let appendedPromptContext = "";
+    const extractedUrl = extractUrlFromText(originalPrompt);
+    if (extractedUrl) {
+      // Show thinking UI with a specific message
+      setIdeMessages(prev => {
+        const urlMsgId = Date.now().toString() + "-url-fetch";
+        return [...prev, { role: 'ai', text: `Extracting data from ${extractedUrl}...`, id: urlMsgId, timestamp: Date.now() }];
+      });
+      const urlContent = await fetchWebsiteLinkContent(extractedUrl);
+      
+      // Remove the fetching message
+      setIdeMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
+
+      if (urlContent) {
+        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. REPLICATE THE FOLLOWING HTML/DESIGN/STRUCTURE ENTIRELY:]\n${truncateText(urlContent, 250000)}`;
+      }
+    }
+
+    const inputParts: any[] = [{ text: truncateText(originalPrompt + appendedPromptContext, 500000) }];
     let totalIdeFileSize = 0;
     const MAX_IDE_FILE_SIZE = 100 * 1024 * 1024; // 100MB base64
 
@@ -2640,6 +2691,8 @@ Return "Code executed successfully with no output." if the program produces abso
       await firestoreService.updateUserProfile(user.id, { messageCount: (user.messageCount || 0) + 1 });
       setUser(prev => prev ? { ...prev, messageCount: (prev.messageCount || 0) + 1 } : null);
       
+      const isWebLanguage = ['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase());
+      
       const systemInstruction = `You are Xer0byte AI, the master of efficiency.
 Your goal is to build 100% functional systems in the Sandbox with ZERO fluff.
 Be extremely direct. Provide code immediately. Skip all introductory text.
@@ -2651,10 +2704,24 @@ ${boundedCode}
 \`\`\`
 
 YOUR TASK:
-1. Deliver production-grade, 100% bug-free code updates for both frontend and backend.
-2. If the user wants a backend, implement robust Firestore schemas, server-side logic, and Firebase integrations.
+1. Deliver production-grade, 100% bug-free code updates.
+${isWebLanguage 
+  ? `2. WEB IFRAME MULTI-FILE WORKSPACE: You are generating code that will run inside a client-side HTML iframe. YOU MUST OUTPUT FILES using the exact format:
+[FILE: index.html]
+<!DOCTYPE html>...
+[FILE: style.css]
+body { ... }
+[FILE: script.js]
+console.log('hi');
+
+Always include index.html. DO NOT write Python (Flask/Django) or Node.js server backends.
+3. PROACTIVE QUESTIONING: Before writing large amounts of assumed code, proactively ask the user questions about their preferred features (e.g. "Do you want me to add TailwindCSS?" "Do you need a Database?"). Let the user answer Yes/No, then build it based on their confirmation. Be conversational and helpful.
+4. DATABASE RULES: ${ideDbLinked ? 'The user has ENABLED database integration. You may write client-side Firebase v9 code for the database.' : 'The user has DISABLED database integration. DO NOT use databases.'}
+5. ONLY Provide the updated files wrapped in the [FILE: filename] markers. Do NOT use markdown code blocks (\`\`\`).` 
+  : `2. If the user wants a backend, implement robust Firestore schemas, server-side logic, and Firebase integrations.
 3. If the user wants code update, PROVIDE THE ENTIRE UPDATED CODE BLOCK enclosed in \`\`\`${canvasLanguage} markup.
-4. You are authorized to design backend architectures, write security rules, and structure complex data models.
+4. You are authorized to design backend architectures, write security rules, and structure complex data models.`
+}
 5. AI GENERATION: You can trigger image generation by stating: [GENERATE_IMAGE: prompt] and music by stating: [GENERATE_MUSIC: prompt].
 6. NO unnecessary filler. Accuracy and high-level architecture are paramount.
 ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images: [${Object.keys(sessionAssets).join(', ')}]. In code, use window.Xer0Assets['filename'] to access their base64 data.` : ''}`;
@@ -2735,22 +2802,50 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         });
       }
 
-      // Check if response contains a code block matching the current language
-      const codeMatch = fullAiText.match(new RegExp("```(?:" + canvasLanguage + "|javascript|typescript|html|css|python|java|csharp|php|ruby|go|swift|kotlin|dart|elixir|erlang|c|cpp|rust|zig|nim|d|ada|assembly|r|julia|sql|prolog|lisp|haskell|clojure|scala|ocaml|fsharp|bash|basic|cobol|crystal|fortran|groovy|lua|pascal|perl|brainfuck)?\\n([\\s\\S]*?)```", "i"));
-      
-      if (codeMatch && codeMatch[1]) {
-        const newCode = codeMatch[1].trim();
-        if (canvasContent && canvasContent.trim()) {
-          // Trigger Sandboxed Code Split-Diff Viewer
-          setPendingCodeUpdate({
-            oldCode: canvasContent,
-            newCode,
-            originalPrompt
-          });
+      // Check if response contains multiple files using [FILE: filename]
+      const fileBlocks: {name: string, content: string}[] = [];
+      const fileRegex = /\[FILE:\s*([\w.-]+)\]\n([\s\S]*?)(?=\n\[FILE:|$)/gi;
+      let match;
+      while ((match = fileRegex.exec(fullAiText)) !== null) {
+        fileBlocks.push({ name: match[1], content: match[2].trim() });
+      }
+
+      if (fileBlocks.length > 0) {
+        setIdeFiles(fileBlocks);
+        const activeFileName = fileBlocks.find(f => f.name === 'index.html')?.name || fileBlocks[0].name;
+        setIdeActiveFile(activeFileName);
+        
+        const htmlContent = fileBlocks.find(f => f.name === 'index.html')?.content || fileBlocks[0].content;
+        
+        if (canvasContent && canvasContent.trim() && htmlContent && htmlContent.trim()) {
+           setPendingCodeUpdate({
+             oldCode: canvasContent,
+             newCode: htmlContent,
+             originalPrompt
+           });
         } else {
-          // No current file content - just save it directly
-          setCanvasContent(newCode);
-          setCanvasHistory(prev => [{ prompt: originalPrompt, code: newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+           setCanvasContent(htmlContent);
+           setCanvasHistory(prev => [{ prompt: originalPrompt, code: htmlContent, timestamp: Date.now() }, ...prev].slice(0, 50));
+        }
+        setAlertModal({ isOpen: true, message: "Multi-file workspace generated successfully!" });
+      } else {
+        // Check if response contains a code block matching the current language
+        const codeMatch = fullAiText.match(new RegExp("```(?:" + canvasLanguage + "|javascript|typescript|html|css|python|java|csharp|php|ruby|go|swift|kotlin|dart|elixir|erlang|c|cpp|rust|zig|nim|d|ada|assembly|r|julia|sql|prolog|lisp|haskell|clojure|scala|ocaml|fsharp|bash|basic|cobol|crystal|fortran|groovy|lua|pascal|perl|brainfuck)?\\n([\\s\\S]*?)```", "i"));
+        
+        if (codeMatch && codeMatch[1]) {
+          const newCode = codeMatch[1].trim();
+          if (canvasContent && canvasContent.trim()) {
+            // Trigger Sandboxed Code Split-Diff Viewer
+            setPendingCodeUpdate({
+              oldCode: canvasContent,
+              newCode,
+              originalPrompt
+            });
+          } else {
+            // No current file content - just save it directly
+            setCanvasContent(newCode);
+            setCanvasHistory(prev => [{ prompt: originalPrompt, code: newCode, timestamp: Date.now() }, ...prev].slice(0, 50));
+          }
         }
       }
 
@@ -3089,8 +3184,22 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 40, 1000000);
 
+      let appendedPromptContext = "";
+      const extractedUrl = extractUrlFromText(text);
+      if (extractedUrl) {
+         setMessages(prev => {
+            const urlMsgId = Date.now().toString() + "-url-fetch";
+            return [...prev, { role: 'ai', text: `Extracting data from ${extractedUrl}...`, id: urlMsgId, timestamp: Date.now() }];
+         });
+         const urlContent = await fetchWebsiteLinkContent(extractedUrl);
+         setMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
+         if (urlContent) {
+           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY:]\n${truncateText(urlContent, 250000)}`;
+         }
+      }
+
       const inputParts: any[] = [];
-      if (text) inputParts.push({ text: truncateText(text, 100000) });
+      if (text) inputParts.push({ text: truncateText(text + appendedPromptContext, 500000) });
       if (currentFiles.length > 0) {
         // Limit total files size to prevent context overflow
         // Gemini 1.5 Flash has 1M token limit. 
@@ -6453,17 +6562,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     <button 
                       onClick={async () => {
                         const newConv = await firestoreService.createSandboxConversation(user!.id, "New Sandbox Chat");
-                        const newConvId = newConv.id;
-                        setSandboxConversations(prev => [{
-                          id: newConvId,
-                          userId: user!.id,
-                          title: "New Sandbox Chat",
-                          lastMessage: "",
-                          timestamp: Date.now(),
-                          isArchived: false,
-                          isPinned: false
-                        }, ...prev]);
-                        setCurrentIdeConversationId(newConvId);
+                        setCurrentIdeConversationId(newConv.id);
                         setIdeMessages([]);
                         setShowIdeChat(true);
                         setShowIdeHistory(false);
@@ -6705,22 +6804,137 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                 </div>
               )}
 
-              <div className={`flex-1 flex flex-col relative ${canvasMode === 'split' ? 'border-b md:border-b-0 md:border-r border-[#333]' : 'w-full max-w-4xl mx-auto'}`}>
-                <div className="px-4 py-1.5 bg-black/20 text-xs font-mono font-bold opacity-50 uppercase tracking-wider text-black dark:text-white">Source Code ({canvasLanguage})</div>
-                {isThinkingIde && (
-                  <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center backdrop-blur-[1px]">
-                    <div className="bg-[#111] text-[#00ff9d] border border-[#333] shadow-2xl px-4 py-2 rounded-xl font-mono text-sm animate-pulse flex items-center gap-2">
-                      <PenTool size={16} className="animate-bounce" /> Writing code...
+              <div className={`flex-1 flex flex-row relative ${canvasMode === 'split' ? 'border-b md:border-b-0 md:border-r border-[#333]' : 'w-full max-w-5xl mx-auto'}`}>
+                {/* File Explorer for Web Workspace */}
+                {['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) && ideFiles.length > 0 && (
+                  <div className={`w-32 md:w-48 overflow-y-auto border-r flex flex-col ${theme === 'dark' ? 'border-[#333] bg-[#0a0a0a]' : 'border-[#ddd] bg-[#f0f0f0]'}`}>
+                    <div className="p-2 text-[10px] font-bold text-gray-500 uppercase tracking-wider flex justify-between items-center border-b border-[#333]">
+                      <span>Workspace</span>
+                      <div className="flex items-center gap-1">
+                        <label className="cursor-pointer hover:text-[#00ff9d] opacity-50 hover:opacity-100 transition-colors" title="Upload File">
+                          <Plus size={12} />
+                          <input 
+                            type="file" 
+                            className="hidden" 
+                            multiple
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []);
+                              for (const file of files) {
+                                const text = await file.text();
+                                setIdeFiles(prev => {
+                                  const existing = prev.find(p => p.name === file.name);
+                                  if (existing) {
+                                    return prev.map(p => p.name === file.name ? { ...p, content: text } : p);
+                                  } else {
+                                    return [...prev, { name: file.name, content: text }];
+                                  }
+                                });
+                                setIdeActiveFile(file.name);
+                                setCanvasContent(text);
+                                setAlertModal({ isOpen: true, message: `Uploaded ${file.name} to workspace.` });
+                              }
+                            }}
+                          />
+                        </label>
+                        <button 
+                          onClick={() => {
+                            const newFilename = prompt("Enter new filename (e.g., script.js):", "newFile.js");
+                            if (newFilename) {
+                               setIdeFiles(prev => [...prev, { name: newFilename, content: "" }]);
+                               setIdeActiveFile(newFilename);
+                               setCanvasContent("");
+                            }
+                          }}
+                          title="New File"
+                          className="hover:text-[#00ff9d] opacity-50 hover:opacity-100 transition-colors"
+                        >
+                          <FileIcon size={12}/>
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            try {
+                              const JSZip = (await import('jszip')).default;
+                              const { saveAs } = (await import('file-saver')).default;
+                              const zip = new JSZip();
+                              ideFiles.forEach(f => {
+                                  zip.file(f.name, f.content);
+                              });
+                              const content = await zip.generateAsync({type:"blob"});
+                              saveAs(content, "workspace.zip");
+                            } catch(err: any) {
+                               console.error(err);
+                               setAlertModal({isOpen: true, message: "Failed to create ZIP: " + err.message});
+                            }
+                          }}
+                          title="Download Workspace (ZIP)" 
+                          className="hover:text-[#00ff9d] opacity-50 hover:opacity-100 transition-colors"
+                        >
+                          <Download size={12}/>
+                        </button>
+                      </div>
                     </div>
+                    {ideFiles.map(file => (
+                      <div 
+                        key={file.name}
+                        onClick={() => {
+                          setIdeActiveFile(file.name);
+                          setCanvasContent(file.content);
+                        }}
+                        className={`p-2 text-[11px] md:text-[13px] font-mono cursor-pointer flex justify-between items-center group border-l-2 ${ideActiveFile === file.name ? (theme === 'dark' ? 'bg-[#222] text-[#00ff9d] border-[#00ff9d]' : 'bg-[#e0e0e0] text-[#006633] border-[#006633] font-bold') : 'border-transparent hover:bg-black/5 dark:hover:bg-white/5 opacity-80 text-black dark:text-white'}`}
+                      >
+                         <div className="flex items-center gap-1.5 truncate">
+                           <FileIcon size={12} className="inline opacity-60 shrink-0"/>
+                           <span className="truncate">{file.name}</span>
+                         </div>
+                         {ideFiles.length > 1 && (
+                           <button 
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               const confirmDelete = window.confirm(`Are you sure you want to delete ${file.name}?`);
+                               if (confirmDelete) {
+                                  const newFiles = ideFiles.filter(f => f.name !== file.name);
+                                  setIdeFiles(newFiles);
+                                  if (ideActiveFile === file.name) {
+                                    setIdeActiveFile(newFiles[0].name);
+                                    setCanvasContent(newFiles[0].content);
+                                  }
+                               }
+                             }}
+                             className="opacity-0 group-hover:opacity-100 hover:text-red-500 transition-opacity shrink-0"
+                             title="Delete File"
+                           >
+                              <X size={12} />
+                           </button>
+                         )}
+                      </div>
+                    ))}
                   </div>
                 )}
-                <textarea 
-                  value={canvasContent}
-                  onChange={(e) => setCanvasContent(e.target.value)}
-                  placeholder="Write, paste code, or ask AI below to generate code here..."
-                  className={`flex-1 w-full p-4 resize-none outline-none font-mono text-[13px] md:text-sm leading-relaxed ${theme === 'dark' ? 'bg-transparent text-[#ddd] placeholder-[#444]' : 'bg-[#fafafa] text-[#333] placeholder-[#aaa]'}`}
-                  spellCheck={false}
-                />
+                
+                <div className={`flex-1 flex flex-col relative`}>
+                  <div className="px-4 py-1.5 bg-black/20 text-xs font-mono font-bold opacity-50 uppercase tracking-wider text-black dark:text-white">
+                    {ideFiles.length > 1 && ['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) ? ideActiveFile : `Source Code (${canvasLanguage})`}
+                  </div>
+                  {isThinkingIde && (
+                    <div className="absolute inset-0 bg-black/20 z-10 flex items-center justify-center backdrop-blur-[1px]">
+                      <div className="bg-[#111] text-[#00ff9d] border border-[#333] shadow-2xl px-4 py-2 rounded-xl font-mono text-sm animate-pulse flex items-center gap-2">
+                        <PenTool size={16} className="animate-bounce" /> Writing code...
+                      </div>
+                    </div>
+                  )}
+                  <textarea 
+                    value={canvasContent}
+                    onChange={(e) => {
+                      setCanvasContent(e.target.value);
+                      if (['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) && ideFiles.length > 0) {
+                        setIdeFiles(prev => prev.map(f => f.name === ideActiveFile ? { ...f, content: e.target.value } : f));
+                      }
+                    }}
+                    placeholder="Write, paste code, or ask AI below to generate code here..."
+                    className={`flex-1 w-full p-4 resize-none outline-none font-mono text-[13px] md:text-sm leading-relaxed ${theme === 'dark' ? 'bg-transparent text-[#ddd] placeholder-[#444]' : 'bg-[#fafafa] text-[#333] placeholder-[#aaa]'}`}
+                    spellCheck={false}
+                  />
+                </div>
               </div>
 
               {canvasMode === 'split' && (
@@ -7560,6 +7774,46 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             <div className={`p-5 border-t ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'} flex justify-between items-center bg-inherit`}>
                <div className="text-[10px] opacity-30 font-mono">Size: {new Blob([viewPasteModal.content]).size} bytes | {viewPasteModal.content.split('\n').length} lines</div>
                <button onClick={() => setViewPasteModal({ ...viewPasteModal, isOpen: false })} className={`px-8 py-3 rounded-xl font-black uppercase tracking-widest transition-all shadow-xl active:scale-95 text-xs ${theme === 'dark' ? 'bg-white text-black hover:bg-[#00ff9d]' : 'bg-black text-white hover:bg-gray-800'}`}>Close Link</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DB Link Modal for Web Language */}
+      {showDbLinkModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => { if(e.target === e.currentTarget) setShowDbLinkModal(false) }}>
+          <div className={`relative w-full max-w-sm p-6 rounded-2xl shadow-xl flex flex-col gap-4 border ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-white border-[#ddd] text-black'}`}>
+            <h2 className="text-xl font-bold flex items-center gap-2"><HardDrive size={20} className="text-[#00ff9d]" /> Link Database?</h2>
+            <p className="text-sm opacity-80 leading-relaxed">
+              Do you want to enable a database for this Web project? Enabling it allows the Neural Sandbox to generate data schemas and query logic.
+            </p>
+            <div className="flex gap-2 w-full mt-4">
+               <button 
+                 onClick={() => {
+                   setIdeDbLinked(false);
+                   setShowDbLinkModal(false);
+                   if (pendingIdeSubmitEvent) {
+                     setPendingIdeSubmitEvent(false);
+                     setTimeout(() => handleIdeSubmit(), 100);
+                   }
+                 }} 
+                 className={`flex-1 py-2.5 rounded-xl border text-sm font-bold transition-all shadow-sm ${theme === 'dark' ? 'bg-[#222] border-[#444] hover:bg-[#333]' : 'bg-[#f0f0f0] border-[#ccc] hover:bg-[#e0e0e0]'}`}
+               >
+                 No, Pure Frontend
+               </button>
+               <button 
+                 onClick={() => {
+                   setIdeDbLinked(true);
+                   setShowDbLinkModal(false);
+                   if (pendingIdeSubmitEvent) {
+                     setPendingIdeSubmitEvent(false);
+                     setTimeout(() => handleIdeSubmit(), 100);
+                   }
+                 }} 
+                 className={`flex-1 py-2.5 rounded-xl font-bold transition-all shadow-md text-sm ${theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-[#00cc7a]' : 'bg-black text-white hover:bg-gray-800'}`}
+               >
+                 Yes, Link DB
+               </button>
             </div>
           </div>
         </div>
