@@ -220,7 +220,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3-flash-preview';
 
         // Prepare clean history
-        const chatHistory = prepareCleanHistory(updatedMessagesForAI, 40, 1000000);
+        const chatHistory = prepareCleanHistory(updatedMessagesForAI, 20, 150000);
 
         // Prep prompt inputs
         const inputParts: any[] = [];
@@ -2661,7 +2661,7 @@ Return "Code executed successfully with no output." if the program produces abso
       setIdeMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
 
       if (urlContent) {
-        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 250000)}`;
+        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 100000)}`;
       }
     }
 
@@ -2738,7 +2738,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         if (editingIdeMessageIndex !== null) {
           historyToUse = ideMessages.slice(0, editingIdeMessageIndex);
         }
-        const cleanedHistory = prepareCleanHistory(historyToUse, 30, 900000);
+        const cleanedHistory = prepareCleanHistory(historyToUse, 20, 150000);
 
         // Add initial AI message placeholder
         setIdeMessages(prev => [...prev, { role: 'ai', text: "Analyzing Neural Patterns...", id: aiMsgId, timestamp: Date.now() }]);
@@ -3207,7 +3207,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         currentMessagesForHistory = messages.slice(0, editingMessageIndex);
       }
       
-      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 40, 1000000);
+      const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 20, 150000);
 
       let appendedPromptContext = "";
       const extractedUrl = extractUrlFromText(text);
@@ -3219,7 +3219,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
          const urlContent = await fetchWebsiteLinkContent(extractedUrl);
          setMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
          if (urlContent) {
-           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 250000)}`;
+           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 100000)}`;
          }
       }
 
@@ -3308,7 +3308,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           // Throttle state updates based on content length for better performance
           const now = Date.now();
           // For longer messages, throttle more to reduce re-render overhead
-          const throttleLimit = fullAiText.length > 5000 ? 150 : (fullAiText.length > 1000 ? 100 : 80);
+          const throttleLimit = fullAiText.length > 5000 ? 500 : (fullAiText.length > 1000 ? 250 : 100);
           
           if (now - lastUpdateTime > throttleLimit || fullAiText.length < 50) {
              setMessages(prev => {
