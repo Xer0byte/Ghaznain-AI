@@ -15,8 +15,17 @@ export const fetchWebsiteLinkContent = async (url: string): Promise<string | nul
     const htmlText = await response.text();
     return htmlText || null;
   } catch (error) {
-    console.error("Failed to fetch website content via /api/proxy :", error);
-    return null;
+    console.error("Failed to fetch website content via /api/proxy, trying fallback :", error);
+    try {
+      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+      const fallbackResponse = await fetch(proxyUrl);
+      if (!fallbackResponse.ok) return null;
+      const data = await fallbackResponse.json();
+      return data.contents || null;
+    } catch (fallbackErr) {
+       console.error("Fallback fetch also failed:", fallbackErr);
+       return null;
+    }
   }
 };
 

@@ -2659,7 +2659,7 @@ Return "Code executed successfully with no output." if the program produces abso
       setIdeMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
 
       if (urlContent) {
-        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. REPLICATE THE FOLLOWING HTML/DESIGN/STRUCTURE ENTIRELY:]\n${truncateText(urlContent, 250000)}`;
+        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 250000)}`;
       }
     }
 
@@ -3194,7 +3194,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
          const urlContent = await fetchWebsiteLinkContent(extractedUrl);
          setMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
          if (urlContent) {
-           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY:]\n${truncateText(urlContent, 250000)}`;
+           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 250000)}`;
          }
       }
 
