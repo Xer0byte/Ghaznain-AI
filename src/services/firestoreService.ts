@@ -1237,9 +1237,9 @@ export const firestoreService = {
     };
   },
 
-  async addSandboxMessage(userId: string, conversationId: string, message: { role: string, text: string }) {
+  async addSandboxMessage(userId: string, conversationId: string, message: { role: string, text: string, files?: any[] }, msgId?: string) {
     const path = `users/${userId}/sandboxConversations/${conversationId}/messages`;
-    const tempId = 'local_sb_msg_' + Date.now();
+    const tempId = msgId || 'local_sb_msg_' + Date.now();
 
     const docModel = {
       id: tempId,
@@ -1268,11 +1268,14 @@ export const firestoreService = {
         conversationId,
         timestamp: serverTimestamp()
       };
-      const docRef = await addDoc(collection(db, path), data);
-      
-      const synced = updated.map(m => m.id === tempId ? { ...m, id: docRef.id } : m);
-      setLocalCache(`cache_sandbox_messages_${conversationId}`, synced);
-      triggerOfflineUpdate(path, synced);
+      if (msgId) {
+        await setDoc(doc(db, path, msgId), data);
+      } else {
+        const docRef = await addDoc(collection(db, path), data);
+        const synced = updated.map(m => m.id === tempId ? { ...m, id: docRef.id } : m);
+        setLocalCache(`cache_sandbox_messages_${conversationId}`, synced);
+        triggerOfflineUpdate(path, synced);
+      }
 
       await setDoc(doc(db, convPath), { updatedAt: serverTimestamp() }, { merge: true });
     } catch (error) {

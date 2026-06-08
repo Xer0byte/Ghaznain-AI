@@ -296,7 +296,7 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
           )}
           
           <div className={!isAI ? 'text-white w-full' : 'w-full min-w-0'}>
-            {!isAI ? msg.text.replace('[SANDBOX]', '').trim() : null}
+            {!isAI ? msg.text?.replace('[SANDBOX]', '').trim() : null}
           </div>
 
           {/* User Attached Files Preview and Downloads */}

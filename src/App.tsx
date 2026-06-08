@@ -1902,6 +1902,7 @@ export default function App() {
   const tokenPercent = Math.min((activeTokenCount / tokenLimit) * 100, 100);
 
   const [showIdeHistory, setShowIdeHistory] = useState(false);
+  const idePromptInputRef = useRef<HTMLInputElement>(null);
   const ideFileInputRef = useRef<HTMLInputElement>(null);
   const ideFolderInputRef = useRef<HTMLInputElement>(null);
 
@@ -2530,7 +2531,7 @@ Return "Code executed successfully with no output." if the program produces abso
   };
 
   const handleIdeSubmit = async () => {
-    if (!idePrompt.trim()) return;
+    if (!idePrompt.trim() && ideSelectedFiles.length === 0) return;
     
     if (['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) && ideDbLinked === null) {
       setPendingIdeSubmitEvent(true);
@@ -2588,7 +2589,7 @@ Return "Code executed successfully with no output." if the program produces abso
       }
     }
 
-    const originalPrompt = idePrompt;
+    const originalPrompt = idePrompt || (ideSelectedFiles.length > 0 ? `[${ideSelectedFiles.length} file(s) attached]` : "");
     const currentCode = canvasContent;
 
     // Add user message to UI immediately for "chat-like" feel
@@ -2641,8 +2642,9 @@ Return "Code executed successfully with no output." if the program produces abso
 
       await firestoreService.addSandboxMessage(user.id, activeConvId, {
         role: 'user',
-        text: `[SANDBOX] ${originalPrompt}`
-      });
+        text: `[SANDBOX] ${originalPrompt}`,
+        files: userMsg.files || []
+      }, userMsg.id);
     }
 
     let appendedPromptContext = "";
@@ -2993,7 +2995,17 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     const msg = messages[index];
     if (msg.role !== 'user') return;
     
-    setInputText(msg.text);
+    let cleanText = msg.text || '';
+    if (cleanText.match(/\[\d+ file\(s\) attached\]/)) {
+      cleanText = cleanText.replace(/\[\d+ file\(s\) attached\]/g, '').trim();
+    }
+    
+    setInputText(cleanText);
+    if (msg.files) {
+      setSelectedFiles(msg.files);
+    } else {
+      setSelectedFiles([]);
+    }
     setEditingMessageIndex(index);
     if (chatInputRef.current) {
       chatInputRef.current.focus();
@@ -3005,15 +3017,27 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     if (msg.role !== 'user') return;
     
     // Support stripping the [SANDBOX] prefix if it's there
-    let cleanText = msg.text;
-    if (cleanText.startsWith('[SANDBOX] ')) {
+    let cleanText = msg.text || '';
+    if (cleanText?.startsWith('[SANDBOX] ')) {
       cleanText = cleanText.substring(10);
+    } else if (cleanText?.startsWith('[SANDBOX]')) {
+      cleanText = cleanText.substring(9);
+    }
+    if (cleanText.match(/\[\d+ file\(s\) attached\]/)) {
+      cleanText = cleanText.replace(/\[\d+ file\(s\) attached\]/g, '').trim();
     }
     
     setIdePrompt(cleanText);
+    if (msg.files) {
+      setIdeSelectedFiles(msg.files);
+    } else {
+      setIdeSelectedFiles([]);
+    }
     setEditingIdeMessageIndex(index);
     // Focus sandbox input if ref exists
-    // (I'll need to check if there's a ref for idePrompt input)
+    if (idePromptInputRef.current) {
+       idePromptInputRef.current.focus();
+    }
   };
 
   const handleSend = async (text: string = inputText, isVoiceResponse: boolean = false) => {
@@ -3159,7 +3183,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       firestoreService.addMessage(user.id, activeConvId, { 
         role: 'user', 
         text: userMessage.text,
-        imageUrl: null 
+        imageUrl: null,
+        files: userMessage.files || []
       }, userMsgId).catch(err => console.error("Failed to save user message", err));
     }
 
@@ -7039,6 +7064,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
                       <span className={`mx-2 hidden sm:block ${theme === 'dark' ? 'text-[#00ff9d]' : 'text-[#006633]'}`}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg></span>
                       <input 
+                        ref={idePromptInputRef}
                         type="text"
                         value={idePrompt}
                         onChange={e => setIdePrompt(e.target.value)}
