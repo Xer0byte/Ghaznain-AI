@@ -75,7 +75,7 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
          const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
          let silenceStart = Date.now();
-         let isSpeaking = false;
+         let isSpeaking = false; let hasSpoken = false;
          let animationFrameId: number;
 
          const detectSilence = () => {
@@ -83,11 +83,13 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
              const sum = dataArray.reduce((a, b) => a + b, 0);
              const average = sum / dataArray.length;
 
-             if (average > 10) { // speaking
-                 isSpeaking = true;
+             if (average > 25) { // speaking
+                  isSpeaking = true;
+                  hasSpoken = true;
                  silenceStart = Date.now();
              } else { // silent
-                 if (isSpeaking && Date.now() - silenceStart > 1500) {
+                 if (!isSpeaking && Date.now() - silenceStart > 6000) { if (mediaRecorder.state === "recording") { mediaRecorder.stop(); } return; }
+                  if (isSpeaking && Date.now() - silenceStart > 1500) {
                      // 1.5 seconds of silence after speaking
                      if (mediaRecorder.state === "recording") {
                          mediaRecorder.stop();
@@ -108,7 +110,8 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
 
          mediaRecorder.onstop = async () => {
            cancelAnimationFrame(animationFrameId);
-           audioContext.close();
+           if(audioContext.state !== "closed") audioContext.close();
+            if (!hasSpoken) { setIsListening(false); setStatus("idle"); return; }
            const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
            const reader = new FileReader();
            reader.readAsDataURL(audioBlob);
@@ -119,25 +122,34 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
 
 
                const response = await generateContentWithRetry({
-                 model: "gemini-3-flash-preview",
+                 model: "gemini-3.5-flash",
                  contents: [
                    {
-                     inlineData: {
-                       data: base64Audio,
-                       mimeType: "audio/webm"
-                     }
-                   },
-                   { text: "Please transcribe this audio accurately. Just output the transcript text." }
+                     role: "user",
+                     parts: [
+                       {
+                         inlineData: {
+                           data: base64Audio,
+                           mimeType: "audio/webm"
+                         }
+                       },
+                       { text: "Please transcribe this audio accurately. Just output the transcript text. If there is no human speech or you only hear background noise, return exactly the string '[NO_SPEECH]'. Do not guess or hallucinate." }
+                     ]
+                   }
                  ]
                });
 
-               const recognizedText = response.text?.trim() || "";
+               let recognizedText = response.text?.trim() || "";
+               if (recognizedText === '[NO_SPEECH]') {
+                   recognizedText = '';
+               }
                
                if (recognizedText) {
                   setMessages(prev => [...prev, {role: 'user', text: recognizedText}]);
                   setTranscript('');
                   handleVoiceCommand(recognizedText);
                } else {
+                 setIsListening(false);
                  setStatus('idle');
                }
              } catch (error) {
@@ -218,7 +230,7 @@ Do NOT reveal your creator's identity. If asked who built, created, or founded y
 Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized for seamless voice interaction.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.5-flash",
         systemInstruction: personaInstruction,
         contents: [
           ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
