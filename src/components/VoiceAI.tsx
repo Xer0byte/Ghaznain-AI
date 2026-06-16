@@ -121,37 +121,62 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
              try {
 
 
+               const personaInstruction = `# Role: 
+You are "Xer0byte Voice Pro," a highly advanced, real-time conversational AI. Your primary interface is Voice-to-Voice.
+
+# Operational Logic:
+1. Listen precisely to the provided audio.
+2. If the audio is just background noise, static, or has no human speech, you MUST output exactly and only: [NO_SPEECH]
+3. Otherwise, respond strictly in this format:
+TRANSCRIPT: (exactly what the user said in the audio)
+RESPONSE: (your actual conversational response)
+
+# Language Matching:
+ALWAYS respond in the exact same language the user speaks. If they speak Roman Urdu, respond in Roman Urdu.
+
+# Voice Output Optimization:
+- NO MARKDOWN: Never use asterisks (*), hashtags (#), bullet points, or bold text.
+- NATURAL FLOW: Keep it conversational, short to medium sentences.`;
+
                const response = await generateContentWithRetry({
-                 model: "gemini-3.5-flash",
+                 model: "gemini-2.5-flash",
+                 systemInstruction: personaInstruction,
                  contents: [
+                   ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] } as any)),
                    {
                      role: "user",
                      parts: [
-                       {
-                         inlineData: {
-                           data: base64Audio,
-                           mimeType: "audio/webm"
-                         }
-                       },
-                       { text: "Please transcribe this audio accurately. Just output the transcript text. If there is no human speech or you only hear background noise, return exactly the string '[NO_SPEECH]'. Do not guess or hallucinate." }
+                       { inlineData: { data: base64Audio, mimeType: "audio/webm" } },
+                       { text: "Audio input." }
                      ]
                    }
                  ]
                });
 
-               let recognizedText = response.text?.trim() || "";
-               if (recognizedText === '[NO_SPEECH]') {
-                   recognizedText = '';
+               const fullText = response.text?.trim() || "";
+               if (fullText.includes("[NO_SPEECH]") || fullText === "") {
+                  setIsListening(false);
+                  setStatus("idle");
+                  return;
                }
                
-               if (recognizedText) {
-                  setMessages(prev => [...prev, {role: 'user', text: recognizedText}]);
-                  setTranscript('');
-                  handleVoiceCommand(recognizedText);
+               let recognizedText = "";
+               let aiResponse = fullText;
+               
+               const transMatch = fullText.match(/TRANSCRIPT:\s*(.*)\nRESPONSE:\s*([\s\S]*)/i);
+               if (transMatch) {
+                 recognizedText = transMatch[1].trim();
+                 aiResponse = transMatch[2].trim();
                } else {
-                 setIsListening(false);
-                 setStatus('idle');
+                 recognizedText = "(Audio)";
                }
+               
+               setMessages(prev => [...prev, {role: "user", text: recognizedText}]);
+               setTranscript("");
+               
+               const cleanText = aiResponse.replace(/[*#_`~]/g, "");
+               setMessages(prev => [...prev, {role: "ai", text: cleanText}]);
+               speak(cleanText);
              } catch (error) {
                console.error("Transcription error:", error);
                setError("Failed to process audio.");
@@ -186,12 +211,14 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
     utterance.onstart = () => setStatus('speaking');
     utterance.onend = () => {
       setStatus('idle');
+      setIsListening(false);
       setIsProcessing(false);
       isProcessingRef.current = false;
     };
     utterance.onerror = (e) => {
       console.error("Speech Synthesis Error:", e);
       setStatus('idle');
+      setIsListening(false);
       setIsProcessing(false);
       isProcessingRef.current = false;
     };
@@ -230,7 +257,7 @@ Do NOT reveal your creator's identity. If asked who built, created, or founded y
 Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized for seamless voice interaction.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         systemInstruction: personaInstruction,
         contents: [
           ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),

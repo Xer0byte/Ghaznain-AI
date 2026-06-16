@@ -47,11 +47,11 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   for (let i = 0; i < maxRetries; i++) {
     try {
       if (i === maxRetries - 1) {
-        config.model = 'gemini-3.5-flash';
+        config.model = 'gemini-2.5-flash';
       }
 
       const request: any = {
-        model: config.model || 'gemini-3.5-flash',
+        model: config.model || 'gemini-2.5-flash',
         contents: config.contents,
         config: {
           system_instruction: config.systemInstruction,
@@ -95,11 +95,11 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
     try {
       // If we are on the last retry and it's a 429, try falling back to a more available model
       if (i === maxRetries - 1) {
-        config.model = 'gemini-3.5-flash';
+        config.model = 'gemini-2.5-flash';
       }
 
       const request: any = {
-        model: config.model || 'gemini-3.5-flash',
+        model: config.model || 'gemini-2.5-flash',
         contents: config.contents,
         config: {
           system_instruction: config.systemInstruction,
@@ -136,18 +136,18 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   throw lastError;
 }
 
-export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-3.5-flash", temp = 0.7) {
+export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-2.5-flash", temp = 0.7) {
   let systemInstruction = "";
   const contents: any[] = [];
   
   // Use recommended model instead of deprecated ones
   let modelName = passedModelName;
   if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude") || 
-      modelName === "gemini-3.5-flash" || modelName === "gemini-3.1-pro-preview" || modelName === "gemini-2.5-flash") {
-    modelName = "gemini-3.5-flash";
+      modelName === "gemini-2.5-flash" || modelName === "gemini-2.5-pro" || modelName === "gemini-2.5-flash") {
+    modelName = "gemini-2.5-flash";
   }
   if (!modelName.startsWith("gemini") && !modelName.startsWith("lyria") && !modelName.startsWith("veo") && !modelName.startsWith("imagen")) {
-      modelName = "gemini-3.5-flash";
+      modelName = "gemini-2.5-flash";
   }
   
   for (const msg of messages) {
@@ -176,7 +176,7 @@ export async function generateChat(messages: { role: string; content: string }[]
 export async function generateImage(prompt: string, aspectRatio: string = "1:1") {
     try {
       const response = await generateContentWithRetry({
-        model: 'gemini-3.1-flash-image',
+        model: 'gemini-2.5-flash',
         contents: {
           parts: [
             { text: `Generate a high-quality, detailed image strictly following this prompt: "${prompt}". Do not add unnecessary elements. Ensure the image is clear and professional.` },
@@ -215,7 +215,7 @@ export async function transcribeAudio(audioBase64: string, mimeType: string) {
   }
   
   const result = await generateContentWithRetry({
-    model: "gemini-3.5-flash",
+    model: "gemini-2.5-flash",
     contents: [
       {
         role: "user",
@@ -235,7 +235,7 @@ export async function generateTTS(text: string) {
   const ai = getAiClient();
   try {
     const result = await generateContentWithRetry({
-      model: "gemini-3.1-flash-tts-preview",
+      model: "gemini-2.5-flash",
       contents: [{ parts: [{ text: `Say: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -303,7 +303,7 @@ export async function generateMusic(prompt: string, isFullTrack: boolean = false
 
 export async function enhancePrompt(promptText: string): Promise<string> {
   const result = await generateContentWithRetry({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     contents: `Rewrite and enhance this short or low-quality prompt to be detail-rich, professional, clear, and perfectly structured for an advanced LLM. Do not ask questions or do any preamble—just return the beautifully enhanced, detailed prompt text (use markdown for tables, bullet points, and codeblocks where applicable if it helps clarify details):\n\nOriginal Prompt:\n"${promptText}"`,
     systemInstruction: "You are an expert prompt engineer. Your job is to analyze short or simple instructions and expand them into detail-rich, clear, standard, task-oriented professional prompts. Add structure, edge cases, output format expectations, and deep contextual guidance while keeping original user intent 100% intact.",
   });
