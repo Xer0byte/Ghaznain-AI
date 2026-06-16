@@ -2644,7 +2644,7 @@ Return "Code executed successfully with no output." if the program produces abso
         role: 'user',
         text: `[SANDBOX] ${originalPrompt}`,
         files: userMsg.files || []
-      }, userMsg.id);
+      }, userMsg.id?.toString());
     }
 
     let appendedPromptContext = "";

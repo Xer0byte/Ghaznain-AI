@@ -143,7 +143,7 @@ export async function generateChat(messages: { role: string; content: string }[]
   // Use recommended model instead of deprecated ones
   let modelName = passedModelName;
   if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude") || 
-      modelName === "gemini-3-flash-preview" || modelName === "gemini-3.1-pro-preview" || modelName === "gemini-3-flash-preview") {
+      modelName === "gemini-1.5-flash" || modelName === "gemini-1.5-pro" || modelName === "gemini-2.5-flash") {
     modelName = "gemini-3-flash-preview";
   }
   if (!modelName.startsWith("gemini") && !modelName.startsWith("lyria") && !modelName.startsWith("veo") && !modelName.startsWith("imagen")) {

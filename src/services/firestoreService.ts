@@ -584,7 +584,7 @@ export const firestoreService = {
     };
   },
 
-  async addMessage(userId: string, conversationId: string, message: { role: string, text: string, imageUrl?: string | null }, customId?: string) {
+  async addMessage(userId: string, conversationId: string, message: { role: string, text: string, imageUrl?: string | null, files?: any[] }, customId?: string) {
     const path = `users/${userId}/conversations/${conversationId}/messages`;
     const tempId = customId || 'local_msg_' + Date.now();
 
