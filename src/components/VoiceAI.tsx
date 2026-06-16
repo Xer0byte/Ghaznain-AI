@@ -83,7 +83,7 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, token, isPrivate, onE
              const sum = dataArray.reduce((a, b) => a + b, 0);
              const average = sum / dataArray.length;
 
-             if (average > 25) { // speaking
+             if (average > 45) { // speaking
                   isSpeaking = true;
                   hasSpoken = true;
                  silenceStart = Date.now();
