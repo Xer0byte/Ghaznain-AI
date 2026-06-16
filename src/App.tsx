@@ -3369,10 +3369,19 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           ? `${imagePrompt}, high quality, detailed, professional photography, cinematic lighting, 8k resolution, xer0byte style`
           : imagePrompt;
 
+        let base64ImageToEdit = undefined;
+        let mimeTypeToEdit = undefined;
+        const imageFile = currentFiles.find(f => f.mimeType && f.mimeType.startsWith('image/'));
+        if (imageFile) {
+          const b64Parts = imageFile.data.split(',');
+          base64ImageToEdit = b64Parts.length > 1 ? b64Parts[1] : b64Parts[0];
+          mimeTypeToEdit = imageFile.mimeType;
+        }
+
         // Try Gemini first, then fallback
         let imageUrl = "";
         try {
-          imageUrl = await generateImage(finalPrompt, "1:1");
+          imageUrl = await generateImage(finalPrompt, "1:1", base64ImageToEdit, mimeTypeToEdit);
         } catch (e) {
           console.warn("Gemini image generation failed in chat, falling back to pollinations...", e);
           imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
@@ -3628,11 +3637,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         } catch (e) { console.error(e); }
     }
 
+    const currentFiles = [...selectedFiles];
+    setInputText('');
+    setSelectedFiles([]);
+
+    let base64ImageToEdit = undefined;
+    let mimeTypeToEdit = undefined;
+    const imageFile = currentFiles.find(f => f.mimeType && f.mimeType.startsWith('image/'));
+    if (imageFile) {
+      const b64Parts = imageFile.data.split(',');
+      base64ImageToEdit = b64Parts.length > 1 ? b64Parts[1] : b64Parts[0];
+      mimeTypeToEdit = imageFile.mimeType;
+    }
+
     try {
       // Use Gemini for image generation if possible, else fallback to pollinations
       let imageUrl = "";
       try {
-        imageUrl = await generateImage(finalPrompt, aspectRatio);
+        imageUrl = await generateImage(finalPrompt, aspectRatio, base64ImageToEdit, mimeTypeToEdit);
       } catch (e) {
         console.warn("Gemini image gen failed, falling back to pollinations:", e);
         imageUrl = `https://pollinations.ai/p/${encodeURIComponent(finalPrompt)}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000000)}&nologo=true`;
