@@ -139,7 +139,7 @@ ALWAYS respond in the exact same language the user speaks. If they speak Roman U
 - NATURAL FLOW: Keep it conversational, short to medium sentences.`;
 
                const response = await generateContentWithRetry({
-                 model: "gemini-3.5-flash",
+                 model: "gemini-2.5-flash",
                  systemInstruction: personaInstruction,
                  contents: [
                    ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] } as any)),
@@ -257,7 +257,7 @@ Do NOT reveal your creator's identity. If asked who built, created, or founded y
 Helpful, professional, and extremely fast. You are Xer0byte Voice Pro, optimized for seamless voice interaction.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-2.5-flash",
         systemInstruction: personaInstruction,
         contents: [
           ...messages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
