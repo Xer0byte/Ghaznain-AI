@@ -217,7 +217,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         const updatedMessagesForAI = [...convMessages, { role: 'user', text: messageText }];
 
         // Select correct model
-        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
 
         // Prepare clean history
         const chatHistory = prepareCleanHistory(updatedMessagesForAI, 20, 150000);
@@ -326,7 +326,7 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
 - Be world-class, professional, accurate, and completely helpful.
 - Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
 
-      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
 
       const response = await generateContentWithRetry({
         model: geminiModel,
@@ -2501,7 +2501,7 @@ Speed and precision are your only priorities.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
           { role: "user", parts: [{ text: canvasContent }] }
@@ -2728,7 +2728,7 @@ Always include index.html. DO NOT write Python (Flask/Django) or Node.js server 
 6. NO unnecessary filler. Accuracy and high-level architecture are paramount.
 ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images: [${Object.keys(sessionAssets).join(', ')}]. In code, use window.Xer0Assets['filename'] to access their base64 data.` : ''}`;
 
-      const geminiModel = selectedModel === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
 
       let fullAiText = "";
       const aiMsgId = (Date.now() + 1).toString();
@@ -2758,7 +2758,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
             console.warn("Pro model exhausted in Sandbox, falling back to Flash streaming...");
             stream = await generateContentStreamWithRetry({
-              model: 'gemini-2.5-flash',
+              model: 'gemini-3.5-flash',
               contents: [
                 { role: "user", parts: [{ text: systemInstruction }] },
                 ...cleanedHistory,
@@ -3198,7 +3198,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
       
       // Select best model for speed/quality
-      const geminiModel = selectedModel === 'pro' ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.1-pro-preview' : 'gemini-3.5-flash';
 
       // Optimized history: only capture relevant context
       // If it's a new start or no ID, history must be empty to avoid topic mixing
@@ -3930,7 +3930,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinking(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.5-flash",
               contents: [
                 {
                   inlineData: {
@@ -3999,7 +3999,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinkingIde(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-2.5-flash",
+              model: "gemini-3.5-flash",
               contents: [
                 {
                   inlineData: {
@@ -4123,7 +4123,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       });
 
       const response = await generateContentWithRetry({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: [
           { role: "user", parts: [{ text: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." }] },
           ...lmMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
@@ -4163,7 +4163,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       // First generate the script
       const response = await generateContentWithRetry({
-        model: "gemini-2.5-flash",
+        model: "gemini-3.5-flash",
         contents: [
           { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },
           { role: "user", parts: [{ text: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }] }
@@ -4875,7 +4875,11 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen [@supports(height:100dvh)]:h-[100dvh] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-all duration-300 ease-in-out shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}>
+      <motion.aside 
+        layout
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={`fixed md:sticky top-0 bottom-0 left-0 w-[240px] h-screen [@supports(height:100dvh)]:h-[100dvh] flex flex-col p-4 z-50 border-r backdrop-blur-md transition-transform duration-300 ease-in-out transition-opacity shrink-0 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:ml-[-240px] md:opacity-0 md:pointer-events-none'} ${theme === 'dark' ? 'bg-black/94 border-[#222]' : 'bg-white/94 border-[#ddd]'}`}
+      >
         {/* Top Header Section */}
         <div className={`flex items-center gap-3 p-3 rounded-xl text-sm transition-all mb-4 shrink-0 ${theme === 'dark' ? 'bg-[#161616] text-[#888] focus-within:bg-[#222] focus-within:text-white' : 'bg-[#f5f5f5] text-[#555] focus-within:bg-[#e0e0e0] focus-within:text-black'}`}>
           <Search size={18} />
@@ -5119,7 +5123,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             </button>
           </div>
         </div>
-      </aside>
+      </motion.aside>
 
       {/* Main Content */}
       <main className={`flex-1 relative flex flex-col ${view === 'home' || view === 'imagine' ? 'items-center justify-center' : 'items-stretch justify-start'} overflow-hidden`}>
@@ -6638,26 +6642,28 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                             <p className="text-xs font-medium">Ask AI to write some code or explain something!</p>
                           </div>
                         ) : (
-                          ideMessages.map((msg, i) => (
-                            <ChatMessage 
-                               key={msg.id || i}
-                               msg={msg}
-                               i={i}
-                               messagesLength={ideMessages.length}
-                               theme={theme}
-                               user={user}
-                               copyToClipboard={copyToClipboard}
-                               setAlertModal={setAlertModal}
-                               setInputText={setIdePrompt}
-                               handleEdit={handleIdeEdit}
-                               setCanvasLanguage={setCanvasLanguage}
-                               setCanvasContent={setCanvasContent}
-                               setCanvasActiveProjectId={setCanvasActiveProjectId}
-                               setView={setView}
-                               setModals={setModals}
-                               compact={true}
-                            />
-                          ))
+                          <AnimatePresence mode="popLayout" initial={false}>
+                            {ideMessages.map((msg, i) => (
+                              <ChatMessage 
+                                 key={msg.id || i}
+                                 msg={msg}
+                                 i={i}
+                                 messagesLength={ideMessages.length}
+                                 theme={theme}
+                                 user={user}
+                                 copyToClipboard={copyToClipboard}
+                                 setAlertModal={setAlertModal}
+                                 setInputText={setIdePrompt}
+                                 handleEdit={handleIdeEdit}
+                                 setCanvasLanguage={setCanvasLanguage}
+                                 setCanvasContent={setCanvasContent}
+                                 setCanvasActiveProjectId={setCanvasActiveProjectId}
+                                 setView={setView}
+                                 setModals={setModals}
+                                 compact={true}
+                              />
+                            ))}
+                          </AnimatePresence>
                         )}
                         <div ref={ideMessagesEndRef} />
                       </div>
