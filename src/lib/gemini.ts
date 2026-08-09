@@ -54,7 +54,13 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
         model: config.model || 'gemini-2.5-flash',
         contents: config.contents,
         config: {
-          system_instruction: config.systemInstruction,
+          system_instruction: config.systemInstruction || config.config?.systemInstruction,
+          safetySettings: [
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
+          ],
           ...config.generationConfig
         }
       };
@@ -72,7 +78,14 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
 
       const isQuotaExceeded = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('QUOTA');
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
-      const isRetryable = isUnavailable || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
+      let isRetryable = isUnavailable || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
+      
+      const isForbidden = errorMsg.includes('403') || errorMsg.includes('PERMISSION_DENIED');
+      if (isForbidden && i < maxRetries - 1) {
+        console.warn("Model permission denied, fallback to gemini-2.5-flash");
+        config.model = 'gemini-2.5-flash';
+        isRetryable = true;
+      }
       
       if (isRetryable && i < maxRetries - 1) {
         const delay = 500 + Math.random() * 500; // Reduced delay for faster feedback
@@ -102,7 +115,13 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
         model: config.model || 'gemini-2.5-flash',
         contents: config.contents,
         config: {
-          system_instruction: config.systemInstruction,
+          system_instruction: config.systemInstruction || config.config?.systemInstruction,
+          safetySettings: [
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
+          ],
           ...config.generationConfig
         }
       };
@@ -122,7 +141,14 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
       const isDeadline = errorMsg.includes('DEADLINE_EXCEEDED');
       
-      const isRetryable = isUnavailable || isDeadline || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
+      let isRetryable = isUnavailable || isDeadline || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
+      
+      const isForbidden = errorMsg.includes('403') || errorMsg.includes('PERMISSION_DENIED');
+      if (isForbidden && i < maxRetries - 1) {
+        console.warn("Model permission denied, fallback to gemini-2.5-flash");
+        config.model = 'gemini-2.5-flash';
+        isRetryable = true;
+      }
       
       if (isRetryable && i < maxRetries - 1) {
         const delay = 500 + Math.random() * 500; // Reduced delay
