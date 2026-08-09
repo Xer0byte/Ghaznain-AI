@@ -61,6 +61,7 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
           ],
+          maxOutputTokens: 8192,
           ...config.generationConfig
         }
       };
@@ -122,6 +123,7 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
             { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
           ],
+          maxOutputTokens: 8192,
           ...config.generationConfig
         }
       };

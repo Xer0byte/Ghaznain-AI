@@ -237,7 +237,7 @@ export const estimateTokens = (contents: any[]): number => {
  * Truncates and cleans history to stay within context limits while preserving intelligence.
  * We want to keep more history but prune very old messages or very large past code blocks.
  */
-export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, maxTokensTotal: number = 800000) => {
+export const prepareCleanHistory = (messages: any[], maxHistory: number = 200, maxTokensTotal: number = 2000000) => {
   // Take last N messages
   const recentMessages = messages.slice(-maxHistory);
   const history = [];
@@ -249,29 +249,7 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
     const msg = recentMessages[i];
     let text = msg.text || "";
     
-    // Most recent AI response and most recent user message should be preserved as much as possible
-    const isVeryRecent = i >= recentMessages.length - 2;
-    
-    // Prune very large code blocks from older history to save tokens
-    if (!isVeryRecent && msg.role === 'ai' && text.includes('```')) {
-      if (text.length > 5000) {
-        // Find if there are many code blocks and keep only the first/last parts or replace with summary
-        const codeBlockCount = (text.match(/```/g) || []).length / 2;
-        if (codeBlockCount > 2) {
-           text = text.replace(/```[\s\S]*?```/g, (match) => {
-             // Keep small snippets, truncate large ones
-             if (match.length > 1000) return "```\n// ... existing code truncated for context optimization ...\n```";
-             return match;
-           });
-        }
-      }
-    }
-
-    // Rough truncation for absolute safety on individual messages if they are monstrous
-    if (text.length > 50000) {
-      text = truncateText(text, 50000);
-    }
-
+    // No truncation. The user requested complete, unlimited text and code.
     const tokens = Math.ceil(text.length / 4);
     if (currentEstimatedTokens + tokens > maxTokensTotal) {
       break; // Stop adding older messages if we're near the limit
@@ -282,14 +260,11 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
     const parts: any[] = [{ text }];
 
     // PRESERVE RECENT FILES: If the message had files and it's within the last 4 messages, preserve them
-    // This allows the AI to "remember" the content of files previously uploaded
-    // BUT we must be very careful with binary data size in history
     if (msg.role === 'user' && i >= recentMessages.length - 4 && msg.files && msg.files.length > 0) {
       msg.files.forEach((file: any) => {
         if (file.data) {
           const fileData = file.data.includes(',') ? file.data.split(',')[1] : file.data;
-          // Only add if it's not too huge for history (limit to 20MB per file in history to avoid crowding out current request)
-          const MAX_HISTORY_FILE_BYTES = 20 * 1024 * 1024;
+          const MAX_HISTORY_FILE_BYTES = 100 * 1024 * 1024;
           if (fileData.length < MAX_HISTORY_FILE_BYTES) {
             parts.push({
               inlineData: {
@@ -298,9 +273,6 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
               }
             });
             currentEstimatedTokens += Math.ceil(fileData.length / 4);
-          } else {
-            // If too big to keep in binary history, at least keep the filename and a placeholder
-            parts[0].text += `\n[File attachment preserved in history: ${file.name} (Binary data omitted to save context)]`;
           }
         }
       });
@@ -311,9 +283,10 @@ export const prepareCleanHistory = (messages: any[], maxHistory: number = 20, ma
       parts
     });
   }
-  
+
   return history;
 };
+
 
 export const truncateText = (text: string, maxChars: number): string => {
   if (!text || text.length <= maxChars) return text;
