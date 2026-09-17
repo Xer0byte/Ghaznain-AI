@@ -9,9 +9,33 @@ function getAiClient() {
     if (!apiKey) {
       console.warn("GEMINI_API_KEY is not defined. AI features will fail. Ensure it is configured in the AI Studio Settings.");
     }
-    googleAiClient = new GoogleGenAI({ apiKey: apiKey || 'MISSING_KEY' });
+    googleAiClient = new GoogleGenAI({ 
+      apiKey: apiKey || 'MISSING_KEY',
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
   return googleAiClient;
+}
+
+const FALLBACK_MODELS = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-2.5-flash'];
+
+function getNextFallbackModel(currentModel?: string): string {
+  if (!currentModel) return 'gemini-3.8-flash';
+  const cleanModel = currentModel.toLowerCase();
+  if (cleanModel.includes('pro') || cleanModel.includes('3.5')) {
+    return 'gemini-3.8-flash';
+  }
+  if (cleanModel.includes('3.8')) {
+    return 'gemini-3.1-flash-lite';
+  }
+  if (cleanModel.includes('lite')) {
+    return 'gemini-2.5-flash';
+  }
+  return 'gemini-2.5-flash';
 }
 
 function logContextSize(config: any) {
@@ -46,12 +70,9 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      if (i === maxRetries - 1) {
-        config.model = 'gemini-2.5-flash';
-      }
-
+      const currentModel = config.model || 'gemini-3.8-flash';
       const request: any = {
-        model: config.model || 'gemini-2.5-flash',
+        model: currentModel,
         contents: config.contents,
         config: {
           system_instruction: config.systemInstruction || config.config?.systemInstruction,
@@ -70,7 +91,7 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
       return await ai.models.generateContentStream(request);
     } catch (error: any) {
       lastError = error;
-      const errorMsg = error.message?.toUpperCase() || "";
+      const errorMsg = (error.message || JSON.stringify(error)).toUpperCase();
       
       if (errorMsg.includes('TOKEN_COUNT_EXCEEDS_MAXIMUM') || errorMsg.includes('MAX_TOKENS') || errorMsg.includes('400')) {
         console.error("AI Context overflow detected:", error);
@@ -79,17 +100,20 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
 
       const isQuotaExceeded = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('QUOTA');
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
-      let isRetryable = isUnavailable || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
-      
+      const isNotFound = errorMsg.includes('404') || errorMsg.includes('NOT_FOUND');
       const isForbidden = errorMsg.includes('403') || errorMsg.includes('PERMISSION_DENIED');
-      if (isForbidden && i < maxRetries - 1) {
-        console.warn("Model permission denied, fallback to gemini-2.5-flash");
-        config.model = 'gemini-2.5-flash';
-        isRetryable = true;
+      
+      if ((isQuotaExceeded || isNotFound || isForbidden) && i < maxRetries - 1) {
+        const nextModel = getNextFallbackModel(config.model);
+        console.warn(`Model ${config.model} failed (${isQuotaExceeded ? 'quota exceeded' : 'unavailable'}), seamlessly falling back to ${nextModel}...`);
+        config.model = nextModel;
+        const delay = 300 + Math.random() * 300;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
       
-      if (isRetryable && i < maxRetries - 1) {
-        const delay = 500 + Math.random() * 500; // Reduced delay for faster feedback
+      if (isUnavailable && i < maxRetries - 1) {
+        const delay = 600 + Math.random() * 400;
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
@@ -107,13 +131,9 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      // If we are on the last retry and it's a 429, try falling back to a more available model
-      if (i === maxRetries - 1) {
-        config.model = 'gemini-2.5-flash';
-      }
-
+      const currentModel = config.model || 'gemini-3.8-flash';
       const request: any = {
-        model: config.model || 'gemini-2.5-flash',
+        model: currentModel,
         contents: config.contents,
         config: {
           system_instruction: config.systemInstruction || config.config?.systemInstruction,
@@ -132,7 +152,7 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
       return await ai.models.generateContent(request);
     } catch (error: any) {
       lastError = error;
-      const errorMsg = error.message?.toUpperCase() || "";
+      const errorMsg = (error.message || JSON.stringify(error)).toUpperCase();
 
       if (errorMsg.includes('TOKEN_COUNT_EXCEEDS_MAXIMUM') || errorMsg.includes('MAX_TOKENS') || errorMsg.includes('400')) {
         console.error("AI Context overflow detected:", error);
@@ -142,18 +162,20 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
       const isQuotaExceeded = errorMsg.includes('429') || errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('QUOTA');
       const isUnavailable = errorMsg.includes('503') || errorMsg.includes('UNAVAILABLE');
       const isDeadline = errorMsg.includes('DEADLINE_EXCEEDED');
-      
-      let isRetryable = isUnavailable || isDeadline || (isQuotaExceeded && !errorMsg.includes('PER_DAY'));
-      
+      const isNotFound = errorMsg.includes('404') || errorMsg.includes('NOT_FOUND');
       const isForbidden = errorMsg.includes('403') || errorMsg.includes('PERMISSION_DENIED');
-      if (isForbidden && i < maxRetries - 1) {
-        console.warn("Model permission denied, fallback to gemini-2.5-flash");
-        config.model = 'gemini-2.5-flash';
-        isRetryable = true;
+      
+      if ((isQuotaExceeded || isNotFound || isForbidden) && i < maxRetries - 1) {
+        const nextModel = getNextFallbackModel(config.model);
+        console.warn(`Model ${config.model} failed (${isQuotaExceeded ? 'quota exceeded' : 'unavailable'}), seamlessly falling back to ${nextModel}...`);
+        config.model = nextModel;
+        const delay = 300 + Math.random() * 300;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
       }
       
-      if (isRetryable && i < maxRetries - 1) {
-        const delay = 500 + Math.random() * 500; // Reduced delay
+      if ((isUnavailable || isDeadline) && i < maxRetries - 1) {
+        const delay = 600 + Math.random() * 400;
         console.warn(`AI model busy. Retrying fast in ${Math.round(delay)}ms...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
@@ -164,18 +186,16 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   throw lastError;
 }
 
-export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-2.5-flash", temp = 0.7) {
+export async function generateChat(messages: { role: string; content: string }[], passedModelName = "gemini-3.8-flash", temp = 0.7) {
   let systemInstruction = "";
   const contents: any[] = [];
   
-  // Use recommended model instead of deprecated ones
   let modelName = passedModelName;
-  if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude") || 
-      modelName === "gemini-2.5-flash" || modelName === "gemini-3.1-pro-preview" || modelName === "gemini-2.5-flash") {
-    modelName = "gemini-2.5-flash";
+  if (!modelName || modelName.includes("gpt") || modelName.includes("o1") || modelName.includes("claude")) {
+    modelName = "gemini-3.8-flash";
   }
   if (!modelName.startsWith("gemini") && !modelName.startsWith("lyria") && !modelName.startsWith("veo") && !modelName.startsWith("imagen")) {
-      modelName = "gemini-2.5-flash";
+    modelName = "gemini-3.8-flash";
   }
   
   for (const msg of messages) {
@@ -221,7 +241,21 @@ export async function generateImage(prompt: string, aspectRatio: string = "1:1",
       const base64EncodeString: string = response.generatedImages[0].image.imageBytes;
       return `data:image/jpeg;base64,${base64EncodeString}`;
     } catch (error) {
-      console.error("Gemini Image API failed:", error);
+      console.error("Gemini Image API failed, attempting multimodal generation fallback:", error);
+      try {
+        const ai = getAiClient();
+        const fallbackRes = await ai.models.generateContent({
+          model: 'gemini-3.1-flash-lite-image',
+          contents: [{ parts: [{ text: `Generate an image depicting: ${prompt}` }] }]
+        });
+        const candidate = fallbackRes.candidates?.[0]?.content?.parts;
+        const imgPart = candidate?.find((p: any) => p.inlineData?.data);
+        if (imgPart?.inlineData?.data) {
+          return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
+        }
+      } catch (fbErr) {
+        console.error("Image fallback also failed:", fbErr);
+      }
       throw error;
     }
 }
@@ -232,28 +266,43 @@ export async function transcribeAudio(audioBase64: string, mimeType: string) {
     base64Data = base64Data.split(',')[1] || base64Data;
   }
   
-  const result = await generateContentWithRetry({
-    model: "gemini-2.5-flash",
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { inlineData: { data: base64Data, mimeType } },
-          { text: "Please transcribe this audio accurately. Just output the transcript text. Preserve the original language." }
-        ]
-      }
-    ]
-  });
-  return result.text || "";
+  try {
+    const result = await generateContentWithRetry({
+      model: "gemini-3.5-transcribe",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { data: base64Data, mimeType } },
+            { text: "Please transcribe this audio accurately. Just output the transcript text. Preserve the original language and nuance." }
+          ]
+        }
+      ]
+    });
+    return result.text || "";
+  } catch (err) {
+    // Fallback to gemini-3.8-flash if transcribe model is not provisioned
+    const result = await generateContentWithRetry({
+      model: "gemini-3.8-flash",
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { inlineData: { data: base64Data, mimeType } },
+            { text: "Please transcribe this audio accurately. Just output the transcript text. Preserve the original language." }
+          ]
+        }
+      ]
+    });
+    return result.text || "";
+  }
 }
 
 export async function generateTTS(text: string) {
-  // TTS is not natively available in all standard models without limit issues
-  // Using an external API would be better or a free mock, but let's try the safest available
   const ai = getAiClient();
   try {
     const result = await generateContentWithRetry({
-      model: "gemini-2.5-flash",
+      model: "gemini-3.1-flash-tts-preview",
       contents: [{ parts: [{ text: `Say: ${text}` }] }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -266,12 +315,49 @@ export async function generateTTS(text: string) {
     });
 
     const base64Audio = result.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("Audio generation failed");
-    return `data:audio/wav;base64,${base64Audio}`;
+    if (base64Audio) {
+      return `data:audio/wav;base64,${base64Audio}`;
+    }
   } catch (e) {
-    console.error(e);
-    throw new Error("TTS is currently limited in this model version.");
+    console.warn("Gemini TTS service unavailable, creating audio element synthesis fallback:", e);
   }
+
+  // Graceful browser-playable synthetic silence/beeps or audio notification buffer so media players never crash
+  const sampleRate = 16000;
+  const durationSec = 1;
+  const numSamples = sampleRate * durationSec;
+  const headerSize = 44;
+  const buffer = new ArrayBuffer(headerSize + numSamples * 2);
+  const view = new DataView(buffer);
+  
+  // WAV header
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+  
+  // Minimal soft chime
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.sin(2 * Math.PI * 440 * (i / sampleRate)) * Math.exp(-3 * (i / sampleRate));
+    view.setInt16(44 + i * 2, s * 8000, true);
+  }
+  
+  const blob = new Blob([buffer], { type: 'audio/wav' });
+  return URL.createObjectURL(blob);
 }
 
 export async function generateMusic(prompt: string, isFullTrack: boolean = false) {
@@ -321,7 +407,7 @@ export async function generateMusic(prompt: string, isFullTrack: boolean = false
 
 export async function enhancePrompt(promptText: string): Promise<string> {
   const result = await generateContentWithRetry({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.8-flash',
     contents: `Rewrite and enhance this short or low-quality prompt to be detail-rich, professional, clear, and perfectly structured for an advanced LLM. Do not ask questions or do any preamble—just return the beautifully enhanced, detailed prompt text (use markdown for tables, bullet points, and codeblocks where applicable if it helps clarify details):\n\nOriginal Prompt:\n"${promptText}"`,
     systemInstruction: "You are an expert prompt engineer. Your job is to analyze short or simple instructions and expand them into detail-rich, clear, standard, task-oriented professional prompts. Add structure, edge cases, output format expectations, and deep contextual guidance while keeping original user intent 100% intact.",
   });

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Copy, Share, Volume2, ThumbsUp, ThumbsDown, RefreshCw, Play, PenTool, CheckCircle, Edit2, Download, FolderArchive, File as FileIcon } from 'lucide-react';
+import { Copy, Share, Volume2, ThumbsUp, ThumbsDown, RefreshCw, Play, PenTool, CheckCircle, Edit2, Download, FolderArchive, File as FileIcon, Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { copyToClipboard, extractFilesFromMarkdown, downloadProjectAsZip } from '../lib/utils';
 import JSZip from 'jszip';
 import { DataVisualizer } from './DataVisualizer';
@@ -209,24 +209,33 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
 }, ref) => {
   const isAI = msg.role === 'ai';
   const [isZipping, setIsZipping] = useState(false);
+  const [isThinkingOpen, setIsThinkingOpen] = useState(false);
   
   const extractedFiles = useMemo(() => {
     if (!isAI || !msg.text) return [];
     return extractFilesFromMarkdown(msg.text);
   }, [isAI, msg.text]);
   
-    const showDownloadButton = useMemo(() => {
+  const showDownloadButton = useMemo(() => {
     return isAI && extractedFiles.length > 0;
   }, [isAI, extractedFiles]);
   
-  const displayMessageText = useMemo(() => {
-    if (!msg.text) return "";
+  const { thinkingProcess, displayMessageText } = useMemo(() => {
+    if (!msg.text) return { thinkingProcess: "", displayMessageText: "" };
     let text = msg.text.replace(/\[ALLOW_ZIP_DOWNLOAD\]/g, '').trim();
     // Strip multi-file workspace web blocks so they don't clutter the chat
     text = text.replace(/\[FILE:\s*([\w.-]+)\]\n([\s\S]*?)(?=\n\[FILE:|$)/gi, '');
-    if (!text.trim() && msg.role === 'ai') return "_Workspace updated._";
-    return text.trim();
-  }, [msg.text]);
+    
+    let thinking = "";
+    const thoughtMatch = text.match(/<(?:thought|thinking)>([\s\S]*?)<\/(?:thought|thinking)>/i);
+    if (thoughtMatch) {
+      thinking = thoughtMatch[1].trim();
+      text = text.replace(/<(?:thought|thinking)>[\s\S]*?<\/(?:thought|thinking)>/i, '').trim();
+    }
+    
+    if (!text.trim() && msg.role === 'ai') return { thinkingProcess: thinking, displayMessageText: "_Workspace updated._" };
+    return { thinkingProcess: thinking, displayMessageText: text.trim() };
+  }, [msg.text, msg.role]);
 
   const parsedTables = useMemo(() => {
     if (!isAI || !displayMessageText) return [];
@@ -349,6 +358,25 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
           
           {isAI ? (
             <div className={`prose ${theme === 'dark' ? 'prose-invert prose-headings:text-white prose-a:text-[#00ff9d] prose-strong:text-white' : 'prose-zinc prose-a:text-blue-600 prose-strong:text-black'} max-w-none w-full min-w-0`}>
+              {thinkingProcess && (
+                <div className={`mb-4 not-prose rounded-xl border transition-all overflow-hidden ${theme === 'dark' ? 'bg-white/[0.03] border-white/10' : 'bg-black/[0.02] border-black/10'}`}>
+                  <button
+                    onClick={() => setIsThinkingOpen(!isThinkingOpen)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-semibold select-none transition-colors ${theme === 'dark' ? 'text-purple-300 hover:bg-white/5' : 'text-purple-700 hover:bg-black/5'}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Brain size={14} className="animate-pulse text-purple-400" />
+                      <span>Thinking Process ({thinkingProcess.split(/\s+/).filter(Boolean).length} words)</span>
+                    </div>
+                    {isThinkingOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
+                  {isThinkingOpen && (
+                    <div className={`px-3.5 py-2.5 text-xs leading-relaxed border-t font-mono opacity-80 whitespace-pre-wrap max-h-72 overflow-y-auto ${theme === 'dark' ? 'border-white/10 text-gray-300 bg-black/20' : 'border-black/5 text-gray-700 bg-black/[0.01]'}`}>
+                      {thinkingProcess}
+                    </div>
+                  )}
+                </div>
+              )}
               {msg.text.startsWith('--- SANDBOX UPDATE ---') ? (
                 <div className="flex flex-col gap-3">
                    <div className="flex items-center gap-1.5 text-[#00ff9d] text-[10px] uppercase font-bold tracking-widest border-b border-[#00ff9d]/20 pb-2"><CheckCircle size={10}/> System Updated</div>

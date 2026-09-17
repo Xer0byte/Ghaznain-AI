@@ -219,7 +219,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         const updatedMessagesForAI = [...convMessages, { role: 'user', text: messageText }];
 
         // Select correct model
-        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.5-flash' : 'gemini-3.5-flash';
+        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
 
         // Prepare clean history
         const chatHistory = prepareCleanHistory(updatedMessagesForAI, 200, 2000000);
@@ -328,7 +328,7 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
 - Be world-class, professional, accurate, and completely helpful.
 - Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
 
-      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.5-flash' : 'gemini-3.5-flash';
+      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
 
       const response = await generateContentWithRetry({
         model: geminiModel,
@@ -2795,7 +2795,7 @@ Always include index.html. DO NOT write Python (Flask/Django) or Node.js server 
 6. NO unnecessary filler. Accuracy and high-level architecture are paramount.
 ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images: [${Object.keys(sessionAssets).join(', ')}]. In code, use window.Xer0Assets['filename'] to access their base64 data.` : ''}`;
 
-      const geminiModel = selectedModel === 'pro' ? 'gemini-3.5-flash' : 'gemini-3.5-flash';
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
 
       let fullAiText = "";
       const aiMsgId = (Date.now() + 1).toString();
@@ -3265,7 +3265,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       }
       
       // Select best model for speed/quality
-      const geminiModel = selectedModel === 'pro' ? 'gemini-3.5-flash' : 'gemini-3.5-flash';
+      const geminiModel = selectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
 
       // Optimized history: only capture relevant context
       // If it's a new start or no ID, history must be empty to avoid topic mixing

@@ -161,7 +161,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     try {
       const combinedText = sources.map(s => `${s.title}: ${s.content.substring(0, 1000)}`).join('\n\n');
       const response = await generateContentWithRetry({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.8-flash",
         contents: [{ role: 'user', parts: [{ text: `Create a comprehensive "Notebook Guide" for these sources. Summarize the key themes, concepts, and available data across all documents. Be professional and structured.\n\nSOURCES:\n${combinedText}` }] }]
       });
       setNotebookSummary(response.text || '');
@@ -436,7 +436,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     updateLocalOrCloud('Generating summary... ⚡');
     try {
       const response = await generateContentWithRetry({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.8-flash",
         contents: [{ role: 'user', parts: [{ text: `Summarize this specific document in 3-5 bullet points focusing on key takeaways. Use Markdown format. Title: ${source.title}\n\nCONTENT:\n${source.content}` }] }]
       });
       updateLocalOrCloud(response.text || '');
@@ -475,7 +475,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       const formattedHistory = prepareCleanHistory(messages.map(m => ({ ...m, text: m.content })), 15, 600000);
 
       const stream = await generateContentStreamWithRetry({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.8-flash",
         systemInstruction: `Answer the question strictly using the provided context. If the answer is found in the context, cite the source name in brackets like [Source Title]. If the answer is not in the context, clearly state that the information is not available in the provided sources, then offer a general explanation if possible.\n\n${context}`,
         contents: [
           ...formattedHistory,
@@ -531,7 +531,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
       const combinedText = sources.map(s => `${s.title}: ${s.content.substring(0, 1000)}`).join('\n\n');
       
       const scriptResponse = await generateContentWithRetry({
-        model: "gemini-3-flash-preview",
+        model: "gemini-3.8-flash",
         contents: [{ 
           role: 'user', 
           parts: [{ text: `Create a professional podcast-style "Conversational Briefing" based on these sources. Two hosts, Alex and Sam, are discussing the key takeaways. Make it engaging, insightful, and flow naturally. Return ONLY the script text without speaker names or metadata.\n\nSOURCES:\n${combinedText}` }] 

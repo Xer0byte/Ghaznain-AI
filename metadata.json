@@ -1,6 +1,6 @@
 {
-  "name": "Neural X: The Infinite AI",
-  "description": "High-velocity Neural IDE with real-time Sandbox, 4K Image Generation, and Interactive Voice Mode. Built for professionals.",
+  "name": "Xer0byte-AI",
+  "description": "Next-generation multi-lingual AI assistant combining ChatGPT, Grok, and Claude capabilities with deep reasoning, coding, real-time research, and live voice translation.",
   "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
