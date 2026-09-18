@@ -2568,7 +2568,7 @@ Speed and precision are your only priorities.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
           { role: "user", parts: [{ text: canvasContent }] }
