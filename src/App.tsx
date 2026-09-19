@@ -2825,7 +2825,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
             console.warn("Pro model exhausted in Sandbox, falling back to Flash streaming...");
             stream = await generateContentStreamWithRetry({
-              model: 'gemini-3.5-flash',
+              model: 'gemini-3.8-flash',
               contents: [
                 { role: "user", parts: [{ text: systemInstruction }] },
                 ...cleanedHistory,
@@ -4013,7 +4013,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinking(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-3.5-flash",
+              model: "gemini-3.8-flash",
               contents: [
                 {
                   inlineData: {
@@ -4082,7 +4082,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinkingIde(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-3.5-flash",
+              model: "gemini-3.8-flash",
               contents: [
                 {
                   inlineData: {
@@ -4206,7 +4206,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       });
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           { role: "user", parts: [{ text: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." }] },
           ...lmMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
@@ -4246,7 +4246,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       // First generate the script
       const response = await generateContentWithRetry({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.8-flash",
         contents: [
           { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },
           { role: "user", parts: [{ text: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }] }
