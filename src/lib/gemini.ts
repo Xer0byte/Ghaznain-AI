@@ -71,22 +71,30 @@ export async function generateContentStreamWithRetry(config: any, maxRetries = 3
   for (let i = 0; i < maxRetries; i++) {
     try {
       const currentModel = config.model || 'gemini-3.8-flash';
+      const requestConfig: any = {
+        systemInstruction: config.systemInstruction || config.config?.systemInstruction,
+        safetySettings: [
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
+        ],
+        maxOutputTokens: 8192,
+        ...config.generationConfig
+      };
+
+      if (config.tools || config.config?.tools) {
+        requestConfig.tools = config.tools || config.config?.tools;
+      }
+      if (config.thinkingConfig || config.config?.thinkingConfig) {
+        requestConfig.thinkingConfig = config.thinkingConfig || config.config?.thinkingConfig;
+      }
+
       const request: any = {
         model: currentModel,
         contents: config.contents,
-        config: {
-          system_instruction: config.systemInstruction || config.config?.systemInstruction,
-          safetySettings: [
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
-          ],
-          maxOutputTokens: 8192,
-          ...config.generationConfig
-        }
+        config: requestConfig
       };
-      if (config.tools) request.tools = config.tools;
 
       return await ai.models.generateContentStream(request);
     } catch (error: any) {
@@ -132,22 +140,30 @@ export async function generateContentWithRetry(config: any, maxRetries = 3) {
   for (let i = 0; i < maxRetries; i++) {
     try {
       const currentModel = config.model || 'gemini-3.8-flash';
+      const requestConfig: any = {
+        systemInstruction: config.systemInstruction || config.config?.systemInstruction,
+        safetySettings: [
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
+        ],
+        maxOutputTokens: 8192,
+        ...config.generationConfig
+      };
+
+      if (config.tools || config.config?.tools) {
+        requestConfig.tools = config.tools || config.config?.tools;
+      }
+      if (config.thinkingConfig || config.config?.thinkingConfig) {
+        requestConfig.thinkingConfig = config.thinkingConfig || config.config?.thinkingConfig;
+      }
+
       const request: any = {
         model: currentModel,
         contents: config.contents,
-        config: {
-          system_instruction: config.systemInstruction || config.config?.systemInstruction,
-          safetySettings: [
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" }
-          ],
-          maxOutputTokens: 8192,
-          ...config.generationConfig
-        }
+        config: requestConfig
       };
-      if (config.tools) request.tools = config.tools;
 
       return await ai.models.generateContent(request);
     } catch (error: any) {
