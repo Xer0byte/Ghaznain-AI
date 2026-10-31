@@ -1,6 +1,6 @@
 {
   "name": "Xer0byte-AI",
-  "description": "Next-generation multi-lingual AI assistant combining ChatGPT, Grok, and Claude capabilities with deep reasoning, coding, real-time research, and live voice translation.",
+  "description": "Xer0byte | AI Solutions, Python & Web Development. Advanced AI platform combining deep reasoning, sandbox coding, research, and voice workflows.",
   "requestFramePermissions": ["microphone", "geolocation"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

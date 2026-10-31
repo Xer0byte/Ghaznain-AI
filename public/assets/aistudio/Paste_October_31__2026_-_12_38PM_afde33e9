@@ -1,0 +1,1130 @@
+# XER0BYTE — COMPLETE WEBSITE SEO AUDIT, OPTIMIZATION & RANKING MASTER PROMPT
+
+## 1. YOUR ROLE AND MISSION
+
+Act as a senior Technical SEO Engineer, SEO Strategist, Full-Stack Web Developer, Website Performance Engineer, Structured Data Specialist, Google Search Console Specialist, and AI Search Optimization Consultant.
+
+Your mission is to perform a complete, evidence-based SEO audit and implementation of my existing website, Xer0byte.
+
+Do not merely provide recommendations, a checklist, or a tutorial. Inspect my actual project files, identify real problems, implement the necessary fixes, and verify the results wherever the available environment permits.
+
+Use current best practices applicable as of October 2026.
+
+Use Google Search Central documentation as the primary authority for Google-specific requirements. Consult official documentation from web.dev, Schema.org, Bing Webmaster Tools, and other relevant primary sources when necessary.
+
+If web research is available, research the latest applicable guidance before implementing technical changes. Do not invent ranking factors, undocumented Google requirements, or guaranteed shortcuts.
+
+### Primary objective
+
+Improve the website's ability to rank prominently when people search for:
+
+- Xer0byte
+- Xero0byte, only if relevant to actual user search behaviour
+- Xer0byte official website
+- Xer0byte web development
+- Xer0byte AI solutions
+- Xer0byte Python developer
+- Xer0byte automation services
+- Other relevant brand and service-related search queries
+
+Treat the exact brand name as the primary branded SEO target. Investigate real search behaviour before prioritizing spelling variations.
+
+The second objective is to improve qualified organic visibility for the actual services offered by Xer0byte.
+
+The third objective is to improve discoverability through conventional search engines and relevant AI-powered search experiences.
+
+Important: No SEO implementation can guarantee the first position, immediate indexing, or inclusion in an AI-generated search answer. Focus on measurable improvements, technical correctness, useful content, and sustainable organic growth.
+
+---
+
+## 2. WEBSITE IDENTITY AND BUSINESS CONTEXT
+
+Brand name: Xer0byte
+
+Website URL: https://xer0byte.netlify.app/
+
+Brand owner: Ghaznain Ahmad
+
+Professional brand identity: Founder & Lead Developer of Xer0byte.
+
+Business focus:
+
+- AI-powered applications and solutions
+- Python development
+- Web development
+- Frontend development
+- React-based interfaces
+- Backend APIs and integrations
+- Workflow automation
+- Data analysis
+- Relevant AI/ML projects
+- Technical consulting and software solutions
+
+Only describe services that are actually offered or supported by the existing portfolio and business plans.
+
+Do not invent clients, testimonials, awards, revenue figures, office locations, years of experience, project outcomes, or professional qualifications.
+
+Do not describe Xer0byte as a large agency if the website does not support that positioning.
+
+Present the brand as a professional technology and software development brand.
+
+Keep the existing brand identity, including its modern, dark visual style, red logo accent, and green accent colour #18d26e where these are already used.
+
+Preserve the current website's useful design, functionality, animations, responsiveness, branding, and existing working features.
+
+Do not redesign the entire website unnecessarily.
+
+SEO improvements must not damage the existing user experience.
+
+---
+
+## 3. PHASE ONE: INSPECT THE ENTIRE PROJECT
+
+Before modifying anything, inspect the complete accessible project.
+
+Identify:
+
+- Framework and programming language
+- Application entry points
+- Existing routes and pages
+- Components and layouts
+- HTML document structure
+- Head metadata implementation
+- CSS and styling system
+- JavaScript functionality
+- Existing assets and images
+- Logo and favicon files
+- Existing SEO libraries
+- Existing structured data
+- Existing sitemap and robots.txt
+- Routing and deployment configuration
+- Redirect rules and headers
+- External integrations
+- Contact form behaviour
+- Current hosting and deployment assumptions
+- Existing analytics or tracking integrations
+
+Inspect relevant configuration files, package files, build scripts, routing rules, and deployment files.
+
+Do not assume that the project uses React, Next.js, Vite, Astro, or any particular framework. Detect the actual stack.
+
+Create an initial audit report with these columns:
+
+1. SEO category
+2. Existing implementation
+3. Verified issue
+4. Severity: Critical, High, Medium, or Low
+5. Recommended fix
+6. File or location affected
+7. Verification method
+
+Separate confirmed problems from possible improvements.
+
+If an issue cannot be verified because external access, credentials, live website access, or a required tool is unavailable, explicitly identify that limitation.
+
+Do not make code changes until you understand the existing architecture and the potential impact of the changes.
+
+---
+
+## 4. PHASE TWO: BRAND-NAME SEO STRATEGY
+
+Make brand discoverability the first priority.
+
+Investigate how the website currently communicates the Xer0byte brand to search engines and visitors.
+
+### Required implementation
+
+A. Homepage title
+
+Create a clear, distinctive, descriptive title containing the brand name and the most relevant service positioning.
+
+Use this as a starting concept, not an inflexible template:
+
+"Xer0byte | AI Solutions, Python & Web Development"
+
+Refine it after inspecting the actual homepage content and keyword research.
+
+Avoid unnecessary repetition of the brand name or services.
+
+B. Homepage meta description
+
+Write an original, compelling description explaining:
+
+- What Xer0byte does
+- Which services are genuinely available
+- What makes the portfolio or business useful
+- A relevant next step for visitors
+
+Keep it natural and concise. Do not stuff keywords.
+
+C. Visible brand identity
+
+Ensure that the actual homepage clearly communicates:
+
+- The Xer0byte brand name
+- A meaningful primary heading
+- The main services
+- Relevant project examples
+- A clear contact or project enquiry option
+- Links to relevant professional profiles
+
+D. Brand consistency
+
+Inspect consistency across:
+
+- Homepage
+- Logo and favicon
+- Page titles
+- Open Graph metadata
+- Structured data
+- About section
+- Contact information
+- Social profile links
+- External references to the website
+
+Use one consistent spelling of Xer0byte.
+
+Do not introduce inconsistent alternative spellings.
+
+E. Brand-specific content
+
+If the current site lacks sufficient information, improve the existing About and portfolio content so visitors and search engines can understand:
+
+- What Xer0byte is
+- Who operates it
+- Which problems it solves
+- Which technologies it uses
+- Which projects demonstrate its capabilities
+- How visitors can contact the business
+
+Do not create multiple nearly identical brand pages merely to target variations of the same query.
+
+---
+
+## 5. PHASE THREE: TECHNICAL SEO AUDIT
+
+Perform a complete technical SEO inspection.
+
+### A. Crawlability
+
+Verify whether important public pages can be accessed by search engine crawlers.
+
+Check:
+
+- HTTP response status
+- Unexpected redirects
+- Accidental 404 and 5xx errors
+- robots.txt restrictions
+- Meta robots directives
+- X-Robots-Tag headers where applicable
+- Blocked JavaScript, CSS, or important assets
+- Crawlable internal links
+- Login restrictions affecting public pages
+- Hosting or CDN rules that may block crawlers
+
+Do not block important public pages.
+
+Do not remove legitimate protections from private pages or APIs.
+
+### B. Indexability
+
+Inspect:
+
+- Whether important pages are intended to be indexed
+- Accidental noindex directives
+- Conflicting robots directives
+- Canonical tags
+- Duplicate URLs
+- HTTP versus HTTPS variants
+- www versus non-www variants, if applicable
+- Trailing-slash inconsistencies
+- Query-parameter duplicates
+- Redirect chains
+- Soft 404 risks
+- Orphaned pages
+
+Select the canonical URL based on the site's actual deployed configuration.
+
+Do not blindly force a URL format that breaks the existing hosting setup.
+
+Where necessary, implement appropriate redirects and canonical tags.
+
+Do not redirect unrelated URLs to the homepage.
+
+### C. XML sitemap
+
+Inspect the existing sitemap.
+
+If one is needed, generate a valid XML sitemap containing only canonical, public, indexable URLs that should appear in search.
+
+Requirements:
+
+- Use absolute URLs.
+- Use the correct deployed domain.
+- Exclude noindex pages.
+- Exclude redirecting URLs.
+- Exclude error pages.
+- Exclude private pages and API endpoints.
+- Avoid duplicate URLs.
+- Use accurate last-modified dates when available.
+- Do not invent future modification dates.
+- Do not include URLs that do not exist.
+
+Ensure the sitemap can be accessed at the expected location, usually:
+
+https://xer0byte.netlify.app/sitemap.xml
+
+If the deployed website has a different canonical domain, adapt accordingly.
+
+### D. robots.txt
+
+Inspect or create a valid robots.txt.
+
+Allow crawling of important public content and assets.
+
+Do not accidentally block the entire website.
+
+Do not use robots.txt as a substitute for noindex directives.
+
+Include the sitemap location if appropriate.
+
+Verify the final file after the production build.
+
+### E. HTTP and HTTPS
+
+Verify that the public site uses HTTPS.
+
+Check for:
+
+- Mixed content
+- Invalid certificate assumptions
+- Unnecessary redirect hops
+- Broken canonical URLs
+- Inconsistent internal links
+
+Do not claim to have verified the live HTTPS configuration unless the deployed site was actually tested.
+
+### F. JavaScript SEO
+
+If the site uses JavaScript rendering:
+
+- Check whether important content is discoverable by search engines.
+- Ensure meaningful text is available in rendered HTML.
+- Ensure internal navigation uses crawlable links.
+- Avoid hiding essential content behind user interactions.
+- Check whether metadata changes correctly between routes.
+- Avoid relying on a single static document title for every page.
+- Check whether client-side routing creates indexing or canonicalization problems.
+
+If the site is a single-page application, assess whether its current rendering architecture is sufficient.
+
+Do not migrate frameworks simply because server-side rendering is available.
+
+Recommend a framework or rendering change only if a verified limitation justifies the cost and complexity.
+
+---
+
+## 6. PHASE FOUR: ON-PAGE SEO FOR EVERY IMPORTANT PAGE
+
+Audit every existing public page individually.
+
+For each indexable page, review:
+
+- Unique title tag
+- Relevant meta description
+- One clear primary H1
+- Logical H2 and H3 hierarchy
+- Search intent
+- Original page content
+- Internal links
+- Relevant image alt text
+- Canonical URL
+- Open Graph metadata
+- Appropriate structured data
+- Indexability
+- Mobile usability
+- Conversion path
+
+Do not give every page the same title or description.
+
+Do not force every keyword onto every page.
+
+Use descriptive, human-readable URLs for new pages.
+
+Keep existing URLs unless a change provides a clear benefit. If a URL must change, implement and verify appropriate permanent redirects.
+
+### Homepage
+
+The homepage should clearly explain:
+
+- Who or what Xer0byte is
+- What services are available
+- Which audiences the services are for
+- What differentiates the actual portfolio
+- Where visitors can see projects
+- How visitors can initiate contact
+
+### About page or section
+
+Improve the About content with authentic information about the brand, its founder, its approach, and relevant experience.
+
+Use first-hand information where available.
+
+Do not fabricate personal history or credentials.
+
+### Services
+
+Create or improve dedicated service pages only where sufficient distinct, useful content exists.
+
+Potential topics include:
+
+- Python Development
+- Web Development
+- AI Application Development
+- Workflow Automation
+- Data Analysis
+- Frontend Development
+
+First inspect which services are actually offered.
+
+For each justified service page, include:
+
+- Clear service definition
+- Problems addressed
+- Relevant technologies
+- Practical use cases
+- Genuine project examples
+- Delivery approach, if known
+- Frequently asked questions based on real customer needs
+- Appropriate contact call to action
+
+Do not generate thin pages with the same content and different keywords.
+
+### Projects and portfolio
+
+Make project pages useful to both people and search engines.
+
+Where genuine information is available, include:
+
+- Project name
+- Project purpose
+- Problem being solved
+- Technology stack
+- Implementation approach
+- Actual features
+- Genuine screenshots
+- Working project or repository link
+- Real outcomes, if measured
+- Lessons learned
+
+Do not invent performance improvements, users, customers, or business results.
+
+---
+
+## 7. PHASE FIVE: KEYWORD RESEARCH AND SEARCH INTENT
+
+Conduct keyword research before creating a final content strategy.
+
+Use available search tools and reputable keyword research sources.
+
+Prioritize real search intent over arbitrary keyword volume.
+
+Build a keyword map containing:
+
+- Primary keyword
+- Secondary keywords
+- Search intent
+- Target audience
+- Relevant page
+- Geographic relevance
+- Current ranking, if verified
+- Search volume, if reliably available
+- Competition, if supported by reliable data
+- Recommended content improvement
+
+Separate the following keyword groups.
+
+### Group A: Branded keywords
+
+Examples:
+
+- Xer0byte
+- Xer0byte official website
+- Xer0byte developer
+- Xer0byte AI
+- Xer0byte projects
+
+Validate spelling and demand using available evidence.
+
+### Group B: Service keywords
+
+Examples:
+
+- Python developer portfolio
+- Python development services
+- AI application development
+- Web development services
+- Workflow automation developer
+- React frontend developer
+- Data analysis services
+
+These are research candidates, not claims that they have high search volume.
+
+### Group C: Location-specific keywords
+
+Investigate whether users searching for developers in Pakistan, Lahore, or other target locations are relevant to the business.
+
+Do not force local keywords into the website if the business is not targeting those customers.
+
+Do not create fake office addresses or fake local business listings.
+
+### Group D: Informational keywords
+
+Identify relevant questions that prospective clients ask before hiring a developer.
+
+Create helpful articles only when the topic is relevant to the brand and the website can provide genuine value.
+
+### Keyword mapping rules
+
+- Assign one primary search intent to each page.
+- Avoid competing pages targeting identical queries.
+- Prioritize branded search visibility first.
+- Prioritize services that match actual capabilities.
+- Use natural keyword variations.
+- Avoid keyword stuffing.
+- Do not use meta keywords as a ranking strategy.
+- Do not invent keyword volumes or ranking positions.
+
+If reliable keyword metrics are unavailable, label the metrics as unknown and use search intent and relevance for prioritization.
+
+---
+
+## 8. PHASE SIX: STRUCTURED DATA AND ENTITY CLARITY
+
+Inspect and implement appropriate structured data using valid JSON-LD where suitable.
+
+Potential schema types include:
+
+- Person, for a genuine personal portfolio
+- Organization, if the brand is appropriately represented as an organization
+- WebSite
+- WebPage
+- BreadcrumbList, where real breadcrumb navigation exists
+- Article, for qualifying articles
+
+Select only types that accurately represent the visible website and actual business.
+
+### Requirements
+
+- Use the correct canonical website URL.
+- Use the real brand name.
+- Use genuine logo URLs.
+- Include valid social profile URLs only when verified.
+- Use real contact details only when provided and appropriate.
+- Avoid fabricated ratings and reviews.
+- Avoid fake business addresses.
+- Avoid unsupported service claims.
+- Avoid duplicate conflicting schema.
+- Ensure structured data matches visible page content.
+- Validate JSON syntax.
+- Validate supported rich-result markup where applicable.
+
+Do not add LocalBusiness schema with invented location details.
+
+Do not add every available schema type just for the sake of adding schema.
+
+Do not promise rich snippets or enhanced search features simply because schema is implemented.
+
+Use the official Schema.org vocabulary and Google's applicable structured data guidelines.
+
+---
+
+## 9. PHASE SEVEN: WEBSITE SPEED AND CORE WEB VITALS
+
+Audit performance on desktop and mobile.
+
+Use real Lighthouse, PageSpeed Insights, or browser performance results when the environment allows.
+
+Investigate:
+
+- Largest Contentful Paint (LCP)
+- Interaction to Next Paint (INP)
+- Cumulative Layout Shift (CLS)
+- First Contentful Paint
+- Total Blocking Time as a diagnostic metric
+- JavaScript bundle size
+- Unused JavaScript
+- Render-blocking resources
+- Image dimensions and formats
+- Font loading
+- Lazy loading
+- Caching
+- Compression
+- Network requests
+- Third-party scripts
+- Layout shifts
+- Mobile responsiveness
+
+Use the following Core Web Vitals targets as reference thresholds, assessed at the 75th percentile when real-user data is available:
+
+- LCP: 2.5 seconds or less
+- INP: 200 milliseconds or less
+- CLS: 0.1 or less
+
+Do not confuse laboratory measurements with real-user field data.
+
+### Optimization tasks
+
+Where justified:
+
+- Convert oversized images to modern formats.
+- Add appropriate image dimensions.
+- Use responsive images.
+- Lazy-load below-the-fold images.
+- Do not lazy-load the primary above-the-fold image unnecessarily.
+- Optimize font loading.
+- Reduce unnecessary JavaScript.
+- Remove genuinely unused dependencies only after checking their usage.
+- Split bundles where useful.
+- Avoid layout shifts.
+- Improve caching and compression using compatible hosting configuration.
+- Reduce expensive rendering and unnecessary animations.
+
+Preserve the existing design and functionality.
+
+Do not remove important content, accessibility features, or useful animations solely to achieve a higher Lighthouse score.
+
+Do not claim a performance score without running the relevant test.
+
+---
+
+## 10. PHASE EIGHT: MOBILE EXPERIENCE AND ACCESSIBILITY
+
+Ensure the website works properly on:
+
+- Small Android phones
+- iPhones
+- Tablets
+- Laptops
+- Desktop screens
+- Large monitors
+
+Inspect:
+
+- Responsive layouts
+- Viewport configuration
+- Navigation
+- Touch targets
+- Text readability
+- Image scaling
+- Form usability
+- Keyboard navigation
+- Focus visibility
+- Colour contrast
+- Heading hierarchy
+- Semantic HTML
+- Form labels
+- Accessible names
+- Reduced-motion preferences
+
+Use meaningful alt text for informative images.
+
+Use empty alt text for purely decorative images where appropriate.
+
+Do not stuff alt attributes with keywords.
+
+Keep essential text readable and available in the page content.
+
+Do not confuse accessibility improvements with guaranteed ranking increases; implement them because they improve usability and content accessibility.
+
+---
+
+## 11. PHASE NINE: IMAGE SEO AND BRAND ASSETS
+
+Inspect all important images and brand assets.
+
+Optimize:
+
+- Logo
+- Favicon
+- Portfolio thumbnails
+- Project screenshots
+- Service illustrations
+- Social sharing images
+
+Requirements:
+
+- Use descriptive filenames where practical.
+- Add accurate alt text.
+- Include appropriate image dimensions.
+- Avoid oversized files.
+- Preserve image quality.
+- Use relevant image formats.
+- Ensure important images can be crawled.
+- Use correct Open Graph image URLs.
+- Avoid broken asset paths.
+- Maintain visual consistency with the Xer0byte brand.
+
+Do not rename existing files if doing so would break references or create unnecessary deployment risk.
+
+If filenames must change, update every reference.
+
+---
+
+## 12. PHASE TEN: OPEN GRAPH AND SOCIAL SHARING
+
+Implement or repair appropriate social metadata.
+
+Review:
+
+- og:title
+- og:description
+- og:type
+- og:url
+- og:image
+- og:site_name
+- Twitter/X card metadata where useful
+
+Use genuine page titles, descriptions, canonical URLs, and accessible image paths.
+
+Ensure shared links present a professional and accurate representation of Xer0byte.
+
+Do not confuse social metadata with a guaranteed Google ranking factor.
+
+---
+
+## 13. PHASE ELEVEN: CONTENT QUALITY, TRUST AND ORIGINALITY
+
+Improve the website's credibility without fabricating information.
+
+Use authentic information about:
+
+- The founder
+- Actual technical skills
+- Genuine projects
+- Technologies used
+- Development process
+- Real business contact methods
+- Verified professional profiles
+- Genuine client feedback, if available
+
+Make claims specific and supportable.
+
+Avoid generic AI-generated paragraphs that provide no meaningful information.
+
+Avoid copying competitors.
+
+Do not create hundreds of AI-generated pages.
+
+Do not produce near-identical city pages.
+
+Do not publish fake case studies, fake testimonials, or fake statistics.
+
+If AI helps draft content, review it for factual accuracy, originality, relevance, and actual user value.
+
+Where appropriate, demonstrate expertise through detailed project explanations, original technical tutorials, implementation notes, and genuine lessons learned.
+
+Only create blog content that can be maintained and that supports the actual business.
+
+---
+
+## 14. PHASE TWELVE: INTERNAL LINKING AND WEBSITE ARCHITECTURE
+
+Review the existing navigation and internal links.
+
+Create a clear information hierarchy.
+
+Ensure important pages can be reached through relevant internal links.
+
+Use descriptive anchor text.
+
+Link related projects to relevant services where the relationship is genuine.
+
+Make the homepage, services, portfolio, About, and contact pages easy to discover.
+
+Avoid excessive links, repetitive anchor text, hidden links, and unnecessary navigation complexity.
+
+Do not add links to pages that do not exist.
+
+If a breadcrumb structure is useful, implement it consistently.
+
+Ensure links are genuine crawlable links and not dependent solely on inaccessible interactions.
+
+---
+
+## 15. PHASE THIRTEEN: BACKLINKS AND OFF-PAGE BRAND AUTHORITY
+
+Create a safe, sustainable off-page SEO strategy.
+
+Prioritize authentic references to Xer0byte from relevant websites and professional communities.
+
+Potential activities include:
+
+- Maintaining a complete professional profile
+- Publishing useful technical articles
+- Sharing original project write-ups
+- Contributing to relevant open-source repositories
+- Participating in legitimate developer communities
+- Obtaining genuine project or collaboration mentions
+- Building relationships with relevant technology websites
+- Ensuring consistent brand information across legitimate profiles
+
+Only link to real profiles and repositories.
+
+Do not buy spam backlinks.
+
+Do not use private blog networks.
+
+Do not automate mass link creation.
+
+Do not create fake social accounts.
+
+Do not generate fake brand mentions.
+
+Do not use irrelevant directories simply to increase backlink counts.
+
+Do not promise that a specific number of backlinks will produce a particular ranking.
+
+Create a prioritized off-page action plan that considers relevance, credibility, effort, and realistic business value.
+
+---
+
+## 16. PHASE FOURTEEN: GOOGLE SEARCH CONSOLE AND ANALYTICS
+
+Prepare the website for measurement and ongoing improvement.
+
+Inspect existing configuration where possible.
+
+If Search Console is not configured, explain the required owner action and prepare the website for verification.
+
+Do not claim that the property has been verified unless it has.
+
+Provide the correct steps to:
+
+1. Add the canonical website property to Google Search Console.
+2. Verify ownership.
+3. Submit the XML sitemap.
+4. Inspect the homepage URL.
+5. Inspect important service and portfolio URLs.
+6. Review the Page Indexing report.
+7. Monitor sitemap processing.
+8. Review impressions, clicks, CTR, and average position.
+9. Identify branded and non-branded search queries.
+10. Review mobile usability and Core Web Vitals reports where available.
+11. Investigate indexing problems.
+12. Request indexing for important updated URLs when appropriate.
+
+Do not claim that a sitemap submission guarantees indexing.
+
+Do not repeatedly request indexing for the same URL without a reason.
+
+### Analytics
+
+If analytics are already installed, inspect the setup before changing it.
+
+If analytics are absent, recommend an appropriate privacy-conscious implementation.
+
+Do not introduce unnecessary tracking scripts.
+
+Do not expose analytics credentials or secrets.
+
+Do not place private API keys in frontend code.
+
+Do not fabricate traffic or conversion reports.
+
+Use measurable evidence to guide future SEO work.
+
+---
+
+## 17. PHASE FIFTEEN: BING AND OTHER SEARCH ENGINES
+
+Where appropriate, prepare the website for Bing Webmaster Tools and other legitimate discovery channels.
+
+Check:
+
+- Crawlability
+- Sitemap availability
+- Canonical URL consistency
+- Metadata
+- Structured data
+- Mobile usability
+- Search performance measurement
+
+Do not assume that successful Google indexing guarantees equivalent indexing elsewhere.
+
+Avoid unnecessary third-party integrations that add complexity without a clear benefit.
+
+---
+
+## 18. PHASE SIXTEEN: AI SEARCH, AEO AND GEO
+
+Optimize the website for discoverability in AI-assisted search without relying on speculative hacks.
+
+Focus on:
+
+- Accurate, crawlable public content
+- Clear explanations of services
+- Original project information
+- Consistent brand identity
+- Descriptive page titles and headings
+- Helpful answers to genuine customer questions
+- Trustworthy, verifiable information
+- Logical internal links
+- Accessible images and supporting media
+- Correct structured data
+- Clear information about who created the work
+- Current, relevant content
+
+Where suitable, write concise answers to real questions and then provide enough detail to be genuinely useful.
+
+Do not create artificial content solely to manipulate AI-generated answers.
+
+Do not fabricate citations, mentions, or authority.
+
+Do not create an llms.txt file or other AI-specific text files solely because someone claims they guarantee ranking.
+
+Do not assume that a special AI schema, keyword formula, or hidden metadata guarantees inclusion in AI Overviews or AI Mode.
+
+Follow current official Google guidance.
+
+Track AI-related search visibility only through genuine, available reporting or verified observations.
+
+Clearly distinguish measured performance from estimates.
+
+---
+
+## 19. PHASE SEVENTEEN: SECURITY AND DEPLOYMENT SAFETY
+
+All SEO changes must preserve website security.
+
+Never expose:
+
+- API keys
+- Access tokens
+- Passwords
+- Private environment variables
+- Database credentials
+- Personal information that should not be public
+
+Do not disable security controls for SEO.
+
+Inspect redirects and deployment configuration carefully.
+
+Do not break existing routes or form submissions.
+
+Do not introduce dependencies without justification.
+
+Before major changes:
+
+1. Identify affected files.
+2. Explain potentially breaking changes.
+3. Preserve the existing implementation where practical.
+4. Implement the smallest effective change.
+5. Run the available build and tests.
+6. Verify the affected pages and assets.
+7. Report any remaining risks.
+
+Do not deploy automatically unless deployment permissions and the requested action are explicitly available and authorized.
+
+If the website uses GitHub and Netlify, preserve compatibility with the existing workflow.
+
+---
+
+## 20. PHASE EIGHTEEN: AUTOMATED SEO VALIDATION
+
+Use the tools available in the environment to test the implementation.
+
+Where possible, verify:
+
+- Production build succeeds.
+- All existing routes still work.
+- Titles are present and meaningful.
+- Descriptions are present where appropriate.
+- Canonical URLs are correct.
+- Sitemap XML is valid.
+- robots.txt is accessible.
+- Structured data JSON parses correctly.
+- Internal links resolve correctly.
+- Images load successfully.
+- No unintended noindex directives exist.
+- No broken assets have been introduced.
+- No duplicate titles exist among important pages.
+- No accidental duplicate descriptions exist.
+- Important pages are indexable.
+- Mobile layouts remain functional.
+- Existing forms and interactions still work.
+
+Use an automated crawler or HTML inspection when available.
+
+If external live testing is unavailable, perform local validation and clearly distinguish it from production verification.
+
+Do not state that Google has indexed a page unless verified through an appropriate source.
+
+Do not state that the website ranks first unless actual search evidence supports the claim.
+
+---
+
+## 21. IMPLEMENTATION RULES
+
+Follow these rules throughout the project.
+
+1. Inspect before editing.
+2. Base decisions on actual code and evidence.
+3. Preserve existing functionality.
+4. Avoid unnecessary redesigns.
+5. Do not fabricate business information.
+6. Do not invent SEO metrics.
+7. Do not promise guaranteed rankings.
+8. Do not introduce keyword stuffing.
+9. Do not create spam pages or fake backlinks.
+10. Do not blindly install SEO packages.
+11. Do not migrate the framework without a demonstrated reason.
+12. Do not remove existing working features.
+13. Keep code readable and maintainable.
+14. Use the existing architecture unless a change is justified.
+15. Validate every important implementation.
+16. Document configuration that requires manual action.
+17. Explain any task that cannot be completed in the available environment.
+18. Never claim that an external action has been completed if it has not.
+
+When an existing implementation is already correct, keep it.
+
+Do not modify files merely to make the project appear more extensively optimized.
+
+---
+
+## 22. REQUIRED DELIVERABLES
+
+At the end, provide the following deliverables.
+
+### Deliverable A: Initial SEO Audit
+
+A table containing:
+
+- Category
+- Existing state
+- Verified issue
+- Severity
+- Recommended action
+- Affected file or configuration
+- Verification status
+
+### Deliverable B: Changes Implemented
+
+List every modified, created, or deleted file.
+
+For each file, explain:
+
+- What changed
+- Why it changed
+- Which SEO problem it addresses
+- How it was verified
+
+### Deliverable C: Technical SEO Results
+
+Report the status of:
+
+- Crawlability
+- Indexability
+- Canonical URLs
+- Sitemap
+- robots.txt
+- Metadata
+- Structured data
+- Internal linking
+- Mobile usability
+- Performance
+- Accessibility
+- Social sharing metadata
+- Deployment compatibility
+
+Use these statuses:
+
+- PASS: Verified successfully
+- FAIL: A confirmed issue remains
+- NOT TESTED: The relevant test could not be performed
+- NOT APPLICABLE: The feature is not relevant
+
+Do not use PASS without evidence.
+
+### Deliverable D: Keyword Map
+
+Provide a realistic keyword map for branded, service-related, and informational searches.
+
+Clearly label unverified search volumes and competition estimates.
+
+### Deliverable E: Google Search Console Setup Guide
+
+Give step-by-step instructions for any remaining actions that require my Google account.
+
+Include sitemap submission and URL inspection.
+
+### Deliverable F: Remaining Issues
+
+List every significant problem that remains unresolved.
+
+Explain whether it requires:
+
+- Additional code changes
+- Hosting configuration
+- Domain configuration
+- Search Console access
+- External verification
+- New original content
+- Real-world brand building
+
+### Deliverable G: Prioritized SEO Roadmap
+
+Organize the next steps into:
+
+- Immediate technical fixes
+- First 7 days
+- First 30 days
+- Days 31–60
+- Days 61–90
+
+Treat these as work-planning periods, not guaranteed ranking timelines.
+
+Prioritize tasks based on expected value, effort, risk, and available evidence.
+
+### Deliverable H: Final Verification Summary
+
+Provide a concise final report containing:
+
+- Total issues discovered
+- Critical issues fixed
+- High-priority issues fixed
+- Remaining high-priority issues
+- Files changed
+- Tests performed
+- Tests that could not be performed
+- External actions still required
+- Recommended next steps
+
+Do not fabricate counts or test results.
+
+---
+
+## 23. START NOW
+
+Begin by inspecting the actual project and determining which website files and tools are available.
+
+Do not immediately rewrite the entire website.
+
+First understand the existing architecture, content, routes, branding, deployment setup, and current SEO implementation.
+
+Then perform the audit.
+
+After the audit, implement the highest-impact, lowest-risk fixes first.
+
+After every meaningful group of changes, run the available tests.
+
+Preserve existing functionality and report any limitations honestly.
+
+Do not stop after providing an audit report. Continue with actual implementation wherever file access and tool permissions allow.
+
+If a task requires a permission, external account, domain access, Google Search Console verification, or live production access that you do not have, complete all possible preparation work and tell me exactly what I must do manually.
+
+Your ultimate goal is to make Xer0byte's website technically sound, easy to discover, useful to visitors, clearly associated with its brand, and competitive for relevant organic search queries.
+
+Start with the project inspection and initial audit.
