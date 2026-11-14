@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { 
   Search, Terminal, MessageSquare, Mic, Image as ImageIcon, 
   Folder, Book, Settings, Key, Command, Moon, Sun, 
-  PlusCircle, RefreshCw, Trash2, BookOpen, HardDrive, Play 
+  PlusCircle, RefreshCw, Trash2, BookOpen, HardDrive, Play, Briefcase 
 } from 'lucide-react';
 
 interface CommandItem {
@@ -115,6 +115,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       icon: BookOpen,
       category: 'Navigation',
       onSelect: () => { setView('notebook'); onClose(); }
+    },
+    {
+      id: 'g-agents',
+      title: 'Go to Agent & Commerce Hub',
+      description: 'AI Agent Team, OneMAIL triage, SME & storefront builder',
+      shortcut: 'G + A',
+      icon: Briefcase,
+      category: 'Navigation',
+      onSelect: () => { setView('agents'); onClose(); }
     },
     {
       id: 'action-new',

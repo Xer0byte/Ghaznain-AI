@@ -233,7 +233,7 @@ ${speakerHint}
 }`;
 
                 const response = await generateContentWithRetry({
-                  model: "gemini-3.8-flash",
+                  model: "gemini-4-hydrogen",
                   systemInstruction: interpreterInstruction,
                   contents: [
                     {
@@ -292,7 +292,7 @@ TRANSCRIPT: (what user said)
 RESPONSE: (your response)`;
 
                 const response = await generateContentWithRetry({
-                  model: "gemini-3.8-flash",
+                  model: "gemini-4-hydrogen",
                   systemInstruction: personaInstruction,
                   contents: [
                     ...messages.map(m => ({ 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, File as FileIcon, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain } from 'lucide-react';
+import { Search, File as FileIcon, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain, Briefcase } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -22,6 +22,7 @@ import { WorkspaceFileTree } from './components/WorkspaceFileTree';
 import { CommandPalette } from './components/CommandPalette';
 import { DiffViewerModal } from './components/DiffViewerModal';
 import { VoiceWaveVisualizer } from './components/VoiceWaveVisualizer';
+import { AgentWorkspace } from './components/AgentWorkspace';
 import { STARTER_TEMPLATES } from './lib/templates';
 
 const CustomAlert = ({ message, onClose, theme }: { message: string, onClose: () => void, theme: string }) => (
@@ -219,7 +220,7 @@ const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) =
         const updatedMessagesForAI = [...convMessages, { role: 'user', text: messageText }];
 
         // Select correct model
-        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
+        const geminiModel = adminSelectedModel === 'pro' ? 'gemini-4-argon' : 'gemini-4-hydrogen';
 
         // Prepare clean history
         const chatHistory = prepareCleanHistory(updatedMessagesForAI, 200, 2000000);
@@ -334,7 +335,7 @@ Generate the exact next response to send to the User as Xer0byte AI. Follow thes
 - Be world-class, professional, accurate, and completely helpful.
 - Avoid introducing administrative meta-talk; reply directly to the chat stream naturally as Xer0byte AI.`;
 
-      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
+      const geminiModel = adminSelectedModel === 'pro' ? 'gemini-4-argon' : 'gemini-4-hydrogen';
 
       const adminTools: any[] = [];
       if (adminUseWebSearch) {
@@ -1625,7 +1626,7 @@ export default function App() {
     const saved = localStorage.getItem('xer0byteTheme');
     return (saved as 'dark' | 'light') || 'dark';
   });
-  const [view, setView] = useState<'home' | 'chat' | 'history' | 'imagine' | 'voice' | 'projects' | 'xer0bytepedia' | 'admin' | 'ide' | 'notebook'>(() => {
+  const [view, setView] = useState<'home' | 'chat' | 'history' | 'imagine' | 'voice' | 'projects' | 'xer0bytepedia' | 'admin' | 'ide' | 'notebook' | 'agents'>(() => {
     const saved = localStorage.getItem('xer0byteView');
     return (saved as any) || 'home';
   });
@@ -2580,7 +2581,7 @@ Speed and precision are your only priorities.
 Return "Code executed successfully with no output." if the program produces absolutely no output.`;
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.8-flash",
+        model: "gemini-4-hydrogen",
         contents: [
           { role: "user", parts: [{ text: systemInstruction }] },
           { role: "user", parts: [{ text: canvasContent }] }
@@ -2807,7 +2808,8 @@ Always include index.html. DO NOT write Python (Flask/Django) or Node.js server 
 6. NO unnecessary filler. Accuracy and high-level architecture are paramount.
 ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images: [${Object.keys(sessionAssets).join(', ')}]. In code, use window.Xer0Assets['filename'] to access their base64 data.` : ''}`;
 
-      const geminiModel = selectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
+      const geminiModel = selectedModel === 'pro' ? 'gemini-4-argon' : 'gemini-4-hydrogen';
+      const ideThinkingLevel = extendedThinking ? 'XHIGH' : (selectedModel === 'thinking' || selectedModel === 'pro' ? 'HIGH' : 'LOW');
 
       let fullAiText = "";
       const aiMsgId = (Date.now() + 1).toString();
@@ -2836,14 +2838,15 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               ...cleanedHistory,
               { role: "user", parts: inputParts }
             ],
+            thinkingConfig: geminiModel === 'gemini-4-hydrogen' ? { thinkingLevel: ideThinkingLevel } : undefined,
             tools: ideTools.length > 0 ? ideTools : undefined
           });
         } catch (err: any) {
           const errorMsg = err.message?.toUpperCase() || "";
           if (selectedModel === 'pro' && (errorMsg.includes('RESOURCE_EXHAUSTED') || errorMsg.includes('429') || errorMsg.includes('NOT_FOUND') || errorMsg.includes('404'))) {
-            console.warn("Pro model exhausted in Sandbox, falling back to Flash streaming...");
+            console.warn("Pro model exhausted in Sandbox, falling back to Gemini 4 Hydrogen...");
             stream = await generateContentStreamWithRetry({
-              model: 'gemini-3.8-flash',
+              model: 'gemini-4-hydrogen',
               contents: [
                 { role: "user", parts: [{ text: systemInstruction }] },
                 ...cleanedHistory,
@@ -3283,8 +3286,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         return;
       }
       
-      // Select best model for speed/quality
-      const geminiModel = selectedModel === 'pro' ? 'gemini-3.8-flash' : 'gemini-3.8-flash';
+      // Select best Gemini 4 model for speed/reasoning depth
+      const geminiModel = selectedModel === 'pro' ? 'gemini-4-argon' : 'gemini-4-hydrogen';
+      const chatThinkingLevel = extendedThinking ? 'XHIGH' : (selectedModel === 'thinking' || selectedModel === 'pro' ? 'HIGH' : 'LOW');
 
       // Optimized history: only capture relevant context
       // If it's a new start or no ID, history must be empty to avoid topic mixing
@@ -3385,6 +3389,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           ...chatHistory,
           { role: 'user', parts: inputParts }
         ],
+        thinkingConfig: geminiModel === 'gemini-4-hydrogen' ? { thinkingLevel: chatThinkingLevel } : undefined,
         tools: chatTools.length > 0 ? chatTools : undefined
       });
 
@@ -4025,7 +4030,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinking(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-3.8-flash",
+              model: "gemini-4-hydrogen",
               contents: [
                 {
                   inlineData: {
@@ -4094,7 +4099,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           setIsThinkingIde(true);
           try {
             const response = await generateContentWithRetry({
-              model: "gemini-3.8-flash",
+              model: "gemini-4-hydrogen",
               contents: [
                 {
                   inlineData: {
@@ -4218,7 +4223,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       });
 
       const response = await generateContentWithRetry({
-        model: "gemini-3.8-flash",
+        model: "gemini-4-hydrogen",
         contents: [
           { role: "user", parts: [{ text: "You are Xer0byteLM. Use the provided sources to answer the user's queries accurately. If the information is not in the sources, say so cleanly." }] },
           ...lmMessages.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] })),
@@ -4258,7 +4263,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
       // First generate the script
       const response = await generateContentWithRetry({
-        model: "gemini-3.8-flash",
+        model: "gemini-4-hydrogen",
         contents: [
           { role: "user", parts: [{ text: "Create an engaging 1-minute podcast or deep dive transcript summarizing the key points of these sources. Just return the spoken text without speakers headers, so it can be directly converted to speech." }] },
           { role: "user", parts: [{ text: "Sources:\n" + sourceParts.map(s => s.text || "[Data]").join("\n") }] }
@@ -5005,6 +5010,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
               { id: 'imagine', icon: ImageIcon, label: 'Imagine' },
               { id: 'projects', icon: Folder, label: 'Projects' },
               { id: 'history', icon: Clock, label: 'History' },
+              { id: 'agents', icon: Briefcase, label: 'Agent & Commerce Hub' },
               { id: 'xer0bytepedia', icon: Book, label: 'Xer0bytepedia' },
               { id: 'ide', icon: PenTool, label: 'Neural Sandbox', isPremium: true },
               { id: 'notebook', icon: BookOpen, label: 'Xer0byteLM', isPremium: true }
@@ -5616,6 +5622,34 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
           <div className="flex-1 flex flex-col h-full w-full overflow-hidden relative">
              <NotebookUI theme={theme} user={user} />
           </div>
+        )}
+
+        {view === 'agents' && (
+          <AgentWorkspace
+            theme={theme}
+            user={user}
+            onLaunchTemplate={(tpl) => {
+              setCanvasContent(tpl.code);
+              setCanvasLanguage(tpl.language || 'html');
+              setIdeFiles([{ name: 'index.html', content: tpl.code }]);
+              setIdeActiveFile('index.html');
+              setCanvasLiveWeb(true);
+              setCanvasMode('split');
+              setView('ide');
+            }}
+            onLaunchCustomSandbox={(prompt) => {
+              setCanvasLanguage('html');
+              setCanvasLiveWeb(true);
+              setCanvasMode('split');
+              setIdePrompt(prompt);
+              setShowIdeChat(true);
+              setView('ide');
+            }}
+            onSendToMainChat={(text) => {
+              setInputText(text);
+              setView(messages.length > 0 ? 'chat' : 'home');
+            }}
+          />
         )}
 
         {view === 'chat' && (
