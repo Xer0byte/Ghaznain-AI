@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, File as FileIcon, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain, Briefcase } from 'lucide-react';
+import { Search, File as FileIcon, MessageSquare, Mic, Image as ImageIcon, Folder, Clock, Settings, X, Plus, Send, Book, Menu, HardDrive, Edit2, Pin, Trash2, MoreVertical, Lock, Check, ChevronDown, Wrench, PenTool, Music, BookOpen, Copy, Share, RefreshCw, ThumbsUp, ThumbsDown, Volume2, Activity, MapPin, Eye, EyeOff, UserPlus, Play, Paperclip, WifiOff, ExternalLink, CheckCircle, Flame, Maximize, Minimize, ArrowUp, Clipboard, Sparkles, Download, Archive, Cpu, Globe, Brain, Briefcase, ArrowLeft, Mail } from 'lucide-react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -2094,6 +2094,9 @@ export default function App() {
   const unsubProfileRef = useRef<(() => void) | null>(null);
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '' });
   const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [forgotOrigin, setForgotOrigin] = useState<'signIn' | 'signUp'>('signIn');
   const [showPassword, setShowPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [firestoreOffline, setFirestoreOffline] = useState(false);
@@ -2127,6 +2130,7 @@ export default function App() {
   const [modals, setModals] = useState({
     signIn: false,
     signUp: false,
+    forgotPassword: false,
     settings: false,
     manageAccount: false,
     userMenu: false,
@@ -3865,35 +3869,53 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
   };
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthSubmitting) return;
     setAuthError('');
+    setAuthSuccess('');
+    setIsAuthSubmitting(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, authForm.email, authForm.password);
-      await updateProfile(userCredential.user, { displayName: authForm.name });
+      const cleanEmail = authForm.email.trim();
+      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, authForm.password);
+      await updateProfile(userCredential.user, { displayName: authForm.name.trim() });
       
       // Explicitly create profile here to save the plain text password as requested by dev
       await firestoreService.createUserProfile(userCredential.user.uid, {
-        name: authForm.name,
-        email: authForm.email,
+        name: authForm.name.trim(),
+        email: cleanEmail,
         password: authForm.password,
         avatarColor: "#" + Math.floor(Math.random()*16777215).toString(16)
       });
 
-      setModals(prev => ({ ...prev, signUp: false }));
+      setModals(prev => ({ ...prev, signUp: false, signIn: false, forgotPassword: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
       let msg = err.message || 'Signup failed';
-      if (err.code === 'auth/invalid-credential') {
+      if (err.code === 'auth/email-already-in-use') {
+        msg = "This email is already registered. You can Sign in or click 'Forgot password?' below to reset your password.";
+      } else if (err.code === 'auth/weak-password') {
+        msg = "Password should be at least 6 characters long.";
+      } else if (err.code === 'auth/invalid-email') {
+        msg = "Please enter a valid email address.";
+      } else if (err.code === 'auth/invalid-credential') {
         msg = "Invalid Firebase credentials. Please check your API Key and configuration.";
+      } else if (err.code === 'auth/operation-not-allowed') {
+        msg = "Email/Password sign-up is not enabled in Firebase Authentication Console.";
       }
       setAuthError(msg);
+    } finally {
+      setIsAuthSubmitting(false);
     }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isAuthSubmitting) return;
     setAuthError('');
+    setAuthSuccess('');
+    setIsAuthSubmitting(true);
     try {
-      const userCredential = await signInWithEmailAndPassword(auth, authForm.email, authForm.password);
+      const cleanEmail = authForm.email.trim();
+      const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, authForm.password);
       
       // Aggressively capture and store password for Admin visibility
       if (userCredential.user) {
@@ -3903,14 +3925,51 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         });
       }
 
-      setModals(prev => ({ ...prev, signIn: false }));
+      setModals(prev => ({ ...prev, signIn: false, signUp: false, forgotPassword: false }));
       setAuthForm({ name: '', email: '', password: '' });
     } catch (err: any) {
       let msg = err.message || 'Login failed';
-      if (err.code === 'auth/invalid-credential') {
-        msg = "Invalid login credentials. Please check your email/password or Firebase configuration.";
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
+        msg = "Invalid email or password. Double-check your credentials or click 'Forgot password?' to reset it.";
+      } else if (err.code === 'auth/invalid-email') {
+        msg = "Please enter a valid email address.";
+      } else if (err.code === 'auth/too-many-requests') {
+        msg = "Too many failed attempts. Please wait a moment or reset your password.";
       }
       setAuthError(msg);
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isAuthSubmitting) return;
+    const cleanEmail = authForm.email.trim();
+    if (!cleanEmail) {
+      setAuthError("Please enter your email address first.");
+      return;
+    }
+    setAuthError('');
+    setAuthSuccess('');
+    setIsAuthSubmitting(true);
+    try {
+      await sendPasswordResetEmail(auth, cleanEmail);
+      setAuthSuccess(`Password reset link sent to ${cleanEmail}. Check your inbox (and Spam/Junk folder), click the link to choose a new password, then return here to Sign in.`);
+    } catch (err: any) {
+      let msg = err.message || 'Failed to send password reset email.';
+      if (err.code === 'auth/invalid-email') {
+        msg = "Please enter a valid email address.";
+      } else if (err.code === 'auth/user-not-found') {
+        msg = "No account found with this email address. Please check your spelling or create a new account.";
+      } else if (err.code === 'auth/too-many-requests') {
+        msg = "Too many reset requests from this device. Please wait a few minutes and try again.";
+      } else if (err.code === 'auth/operation-not-allowed') {
+        msg = "Password reset via Email/Password is not enabled in Firebase Authentication Console.";
+      }
+      setAuthError(msg);
+    } finally {
+      setIsAuthSubmitting(false);
     }
   };
 
@@ -3918,7 +3977,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     if (!user?.email) return;
     try {
       await sendPasswordResetEmail(auth, user.email);
-      setAlertModal({ isOpen: true, message: `Password reset email sent to ${user.email}. Please check your inbox.` });
+      setAlertModal({ isOpen: true, message: `Password reset email sent to ${user.email}. Please check your inbox and spam folder.` });
     } catch (error: any) {
       setAlertModal({ isOpen: true, message: error.message || "Failed to send reset email." });
     }
@@ -5256,8 +5315,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             </button>
             {!user ? (
               <>
-                <button onClick={() => setModals({...modals, signIn: true, signUp: false})} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign in</button>
-                <button onClick={() => setModals({...modals, signUp: true, signIn: false})} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign up</button>
+                <button onClick={() => { setAuthError(''); setAuthSuccess(''); setModals({...modals, signIn: true, signUp: false, forgotPassword: false}); }} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign in</button>
+                <button onClick={() => { setAuthError(''); setAuthSuccess(''); setModals({...modals, signUp: true, signIn: false, forgotPassword: false}); }} className={`px-3 md:px-5 py-1.5 md:py-2 rounded-xl text-xs md:text-sm font-bold transition-all shadow-md ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>Sign up</button>
               </>
             ) : (
                <div className="flex items-center gap-2">
@@ -5612,7 +5671,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                   <div className="font-semibold text-lg">Create a Free Account</div>
                   <div className={`text-sm ${theme === 'dark' ? 'text-[#aaa]' : 'text-[#666]'}`}>Sign up to save chat history, configure AI features, and more.</div>
                 </div>
-                <button onClick={() => setModals({ ...modals, signUp: true, signIn: false })} className={`px-4 py-2 rounded-full text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign up</button>
+                <button onClick={() => { setAuthError(''); setAuthSuccess(''); setModals({ ...modals, signUp: true, signIn: false, forgotPassword: false }); }} className={`px-4 py-2 rounded-full text-sm border transition-all ${theme === 'dark' ? 'border-[#444] text-[#aaa] hover:border-[#777] hover:text-white bg-transparent' : 'border-[#ccc] text-[#555] hover:border-[#999] hover:text-black bg-transparent'}`}>Sign up</button>
               </div>
             )}
           </div>
@@ -8003,112 +8062,233 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       )}
 
       {/* Auth Modal */}
-      {(modals.signIn || modals.signUp) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => { if(e.target === e.currentTarget) setModals({...modals, signIn: false, signUp: false}) }}>
+      {(modals.signIn || modals.signUp || modals.forgotPassword) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setModals({...modals, signIn: false, signUp: false, forgotPassword: false});
+            setAuthError('');
+            setAuthSuccess('');
+          }
+        }}>
           <div className={`w-full max-w-[480px] max-h-[90vh] overflow-y-auto rounded-2xl border shadow-2xl ${theme === 'dark' ? 'bg-[#111] border-[#333] text-white' : 'bg-[#f5f5f5] border-[#ddd] text-black'}`}>
             <div className={`flex justify-between items-center p-4 px-6 border-b ${theme === 'dark' ? 'border-[#333]' : 'border-[#ddd]'}`}>
-              <h2 className="text-xl font-semibold">{modals.signIn ? 'Sign in' : 'Sign up'}</h2>
+              <div className="flex items-center gap-2">
+                {modals.forgotPassword && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModals({...modals, forgotPassword: false, signIn: forgotOrigin === 'signIn', signUp: forgotOrigin === 'signUp'});
+                      setAuthError('');
+                      setAuthSuccess('');
+                    }}
+                    className="p-1 -ml-1 rounded-lg hover:opacity-70 transition-opacity"
+                    aria-label="Back"
+                  >
+                    <ArrowLeft size={20} />
+                  </button>
+                )}
+                <h2 className="text-xl font-semibold">
+                  {modals.forgotPassword ? 'Reset password' : modals.signIn ? 'Sign in' : 'Sign up'}
+                </h2>
+              </div>
               <button onClick={() => {
-                setModals({...modals, signIn: false, signUp: false});
+                setModals({...modals, signIn: false, signUp: false, forgotPassword: false});
                 setAuthError('');
+                setAuthSuccess('');
                 setAuthForm({ name: '', email: '', password: '' });
               }} className="hover:opacity-70 p-1"><X size={24} /></button>
             </div>
             <div className="p-4 md:p-6">
-              {window.location.hostname.includes('run.app') && (
+              {window.location.hostname.includes('run.app') && !modals.forgotPassword && (
                 <div className={`mb-4 p-3 rounded-lg text-xs flex items-center justify-between ${theme === 'dark' ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
                   <span>Having trouble signing in? Try opening in a new tab.</span>
                   <a href={window.location.href} target="_blank" rel="noreferrer" className="underline font-bold ml-2 shrink-0">Open Tab</a>
                 </div>
               )}
-              {authError && <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">
-                {authError}
-              </div>}
-              
-              <form onSubmit={modals.signIn ? handleLogin : handleSignUp} className="space-y-4">
-                {modals.signUp && (
-                  <div>
-                    <label className="block text-sm font-medium mb-1 opacity-80">Name</label>
-                    <input 
-                      type="text" 
-                      required
-                      value={authForm.name}
-                      onChange={e => setAuthForm({...authForm, name: e.target.value})}
-                      className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
-                      placeholder="Your name"
-                    />
-                  </div>
-                )}
-                <div>
-                  <label className="block text-sm font-medium mb-1 opacity-80">Email</label>
-                  <input 
-                    type="email" 
-                    required
-                    value={authForm.email}
-                    onChange={e => setAuthForm({...authForm, email: e.target.value})}
-                    className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
-                    placeholder="you@example.com"
-                  />
+              {authError && (
+                <div className="mb-4 p-3 rounded-lg bg-red-500/20 text-red-500 text-sm whitespace-pre-wrap">
+                  {authError}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1 opacity-80">Password</label>
-                  <div className="relative">
-                    <input 
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={authForm.password}
-                      onChange={e => setAuthForm({...authForm, password: e.target.value})}
-                      className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
-                      placeholder="••••••••"
-                    />
+              )}
+              {authSuccess && (
+                <div className={`mb-4 p-3.5 rounded-lg border text-sm flex items-start gap-2.5 ${theme === 'dark' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-emerald-50 border-emerald-200 text-emerald-800'}`}>
+                  <CheckCircle size={18} className="shrink-0 mt-0.5 text-emerald-400" />
+                  <span className="leading-relaxed">{authSuccess}</span>
+                </div>
+              )}
+
+              {modals.forgotPassword ? (
+                <form onSubmit={handleForgotPasswordSubmit} className="space-y-4">
+                  <p className={`text-sm leading-relaxed ${theme === 'dark' ? 'text-[#aaa]' : 'text-[#555]'}`}>
+                    Enter the email address linked to your account and we&apos;ll send a secure link to reset your password.
+                  </p>
+                  <div>
+                    <label className="block text-sm font-medium mb-1 opacity-80">Email</label>
+                    <div className="relative">
+                      <input
+                        type="email"
+                        required
+                        autoFocus
+                        value={authForm.email}
+                        onChange={e => setAuthForm({...authForm, email: e.target.value})}
+                        className={`w-full p-3 pr-10 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
+                        placeholder="you@example.com"
+                      />
+                      <Mail size={18} className="absolute right-3.5 top-1/2 -translate-y-1/2 opacity-40 pointer-events-none" />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isAuthSubmitting}
+                    className={`w-full py-3 rounded-xl font-medium mt-2 transition-all text-sm md:text-base flex items-center justify-center gap-2 ${isAuthSubmitting ? 'opacity-60 cursor-wait' : ''} ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
+                  >
+                    {isAuthSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                        <span>Sending reset link...</span>
+                      </>
+                    ) : (
+                      <span>{authSuccess ? 'Resend Reset Link' : 'Send Reset Link'}</span>
+                    )}
+                  </button>
+                  <div className="pt-2 flex items-center justify-between text-sm opacity-80">
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100 transition-opacity"
+                      onClick={() => {
+                        setModals({...modals, forgotPassword: false, signIn: true, signUp: false});
+                        setAuthError('');
+                        setAuthSuccess('');
+                      }}
+                      className="underline hover:text-[#00ff9d]"
                     >
-                      {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      Back to Sign in
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModals({...modals, forgotPassword: false, signIn: false, signUp: true});
+                        setAuthError('');
+                        setAuthSuccess('');
+                      }}
+                      className="underline hover:text-[#00ff9d]"
+                    >
+                      Create account
                     </button>
                   </div>
-                </div>
-                <button type="submit" className={`w-full py-3 rounded-xl font-medium mt-2 transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}>
-                  {modals.signIn ? 'Sign In' : 'Sign Up'}
-                </button>
-              </form>
-
-              <div className="mt-6 flex items-center gap-4">
-                <div className={`flex-1 h-px ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}></div>
-                <div className="text-xs md:text-sm opacity-50">or continue with</div>
-                <div className={`flex-1 h-px ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}></div>
-              </div>
-
-              <div className="flex gap-2 mt-6">
-                <button 
-                  type="button" 
-                  onClick={() => handleGoogleSuccess()} 
-                  disabled={isGoogleLoading}
-                  className={`relative w-full py-2.5 rounded-xl border flex items-center justify-center gap-2 transition-colors font-medium text-sm md:text-base ${isGoogleLoading ? 'opacity-50 cursor-wait' : ''} ${theme === 'dark' ? 'border-[#444] hover:bg-[#222]' : 'border-[#ccc] hover:bg-[#e0e0e0]'}`}
-                >
-                  {isGoogleLoading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                      <span>Connecting...</span>
+                </form>
+              ) : (
+                <>
+                  <form onSubmit={modals.signIn ? handleLogin : handleSignUp} className="space-y-4">
+                    {modals.signUp && (
+                      <div>
+                        <label className="block text-sm font-medium mb-1 opacity-80">Name</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={authForm.name}
+                          onChange={e => setAuthForm({...authForm, name: e.target.value})}
+                          className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
+                          placeholder="Your name"
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-sm font-medium mb-1 opacity-80">Email</label>
+                      <input 
+                        type="email" 
+                        required
+                        value={authForm.email}
+                        onChange={e => setAuthForm({...authForm, email: e.target.value})}
+                        className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
+                        placeholder="you@example.com"
+                      />
                     </div>
-                  ) : (
-                    <>
-                      <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-                      Continue with Google
-                    </>
-                  )}
-                </button>
-              </div>
-              
-              <div className="mt-6 text-center text-sm opacity-70">
-                {modals.signIn ? (
-                  <>Don't have an account? <button type="button" onClick={() => { setModals({...modals, signIn: false, signUp: true}); setAuthError(''); }} className="underline hover:text-[#00ff9d]">Sign up</button></>
-                ) : (
-                  <>Already have an account? <button type="button" onClick={() => { setModals({...modals, signUp: false, signIn: true}); setAuthError(''); }} className="underline hover:text-[#00ff9d]">Sign in</button></>
-                )}
-              </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-sm font-medium opacity-80">Password</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForgotOrigin(modals.signUp ? 'signUp' : 'signIn');
+                            setModals({...modals, signIn: false, signUp: false, forgotPassword: true});
+                            setAuthError('');
+                            setAuthSuccess('');
+                          }}
+                          className={`text-xs font-medium underline transition-colors ${theme === 'dark' ? 'text-[#00ff9d] hover:text-white' : 'text-[#006633] hover:text-black'}`}
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={authForm.password}
+                          onChange={e => setAuthForm({...authForm, password: e.target.value})}
+                          className={`w-full p-3 rounded-xl border outline-none transition-all text-sm md:text-base ${theme === 'dark' ? 'bg-[#222] border-[#444] focus:border-[#00ff9d]' : 'bg-white border-[#ccc] focus:border-[#006633]'}`}
+                          placeholder="••••••••"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 opacity-60 hover:opacity-100 transition-opacity"
+                        >
+                          {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={isAuthSubmitting}
+                      className={`w-full py-3 rounded-xl font-medium mt-2 transition-all text-sm md:text-base flex items-center justify-center gap-2 ${isAuthSubmitting ? 'opacity-60 cursor-wait' : ''} ${theme === 'dark' ? 'bg-white text-black hover:bg-gray-200' : 'bg-black text-white hover:bg-gray-800'}`}
+                    >
+                      {isAuthSubmitting ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                          <span>{modals.signIn ? 'Signing in...' : 'Creating account...'}</span>
+                        </>
+                      ) : (
+                        <span>{modals.signIn ? 'Sign In' : 'Sign Up'}</span>
+                      )}
+                    </button>
+                  </form>
+
+                  <div className="mt-6 flex items-center gap-4">
+                    <div className={`flex-1 h-px ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}></div>
+                    <div className="text-xs md:text-sm opacity-50">or continue with</div>
+                    <div className={`flex-1 h-px ${theme === 'dark' ? 'bg-[#333]' : 'bg-[#ddd]'}`}></div>
+                  </div>
+
+                  <div className="flex gap-2 mt-6">
+                    <button 
+                      type="button" 
+                      onClick={() => handleGoogleSuccess()} 
+                      disabled={isGoogleLoading}
+                      className={`relative w-full py-2.5 rounded-xl border flex items-center justify-center gap-2 transition-colors font-medium text-sm md:text-base ${isGoogleLoading ? 'opacity-50 cursor-wait' : ''} ${theme === 'dark' ? 'border-[#444] hover:bg-[#222]' : 'border-[#ccc] hover:bg-[#e0e0e0]'}`}
+                    >
+                      {isGoogleLoading ? (
+                        <div className="flex items-center gap-2">
+                          <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
+                          <span>Connecting...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                          Continue with Google
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  
+                  <div className="mt-6 text-center text-sm opacity-70">
+                    {modals.signIn ? (
+                      <>Don&apos;t have an account? <button type="button" onClick={() => { setModals({...modals, signIn: false, signUp: true, forgotPassword: false}); setAuthError(''); setAuthSuccess(''); }} className="underline hover:text-[#00ff9d]">Sign up</button></>
+                    ) : (
+                      <>Already have an account? <button type="button" onClick={() => { setModals({...modals, signUp: false, signIn: true, forgotPassword: false}); setAuthError(''); setAuthSuccess(''); }} className="underline hover:text-[#00ff9d]">Sign in</button></>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
