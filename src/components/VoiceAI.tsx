@@ -78,9 +78,15 @@ const VoiceAI: React.FC<VoiceAIProps> = ({ theme, onClose, onError }) => {
   }, []);
 
   const speak = (text: string) => {
-    if (isMutedRef.current) return;
-    window.speechSynthesis.cancel();
     setLastSpokenText(text);
+    if (isMutedRef.current) {
+      setStatus('idle');
+      setIsListening(false);
+      setIsProcessing(false);
+      isProcessingRef.current = false;
+      return;
+    }
+    window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.volume = 1;
@@ -337,6 +343,9 @@ RESPONSE: (your response)`;
               console.error("Transcription error:", error);
               setError("Audio processing busy. Please try again.");
               setStatus('idle');
+              setIsListening(false);
+              setIsProcessing(false);
+              isProcessingRef.current = false;
             }
           };
           stream.getTracks().forEach(track => track.stop());

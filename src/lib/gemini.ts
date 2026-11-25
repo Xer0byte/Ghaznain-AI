@@ -143,13 +143,18 @@ export async function generateChat(
 export async function generateImage(
   prompt: string,
   aspectRatio: string = "1:1",
-  _base64Image?: string,
-  _mimeType?: string
+  base64Image?: string,
+  mimeType?: string
 ) {
   const response = await fetch("/api/gemini/image", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt, aspectRatio }),
+    body: JSON.stringify({
+      prompt,
+      aspectRatio,
+      base64Image,
+      mimeType,
+    }),
   });
   const data = await response.json();
   if (!response.ok || !data.dataUrl) {

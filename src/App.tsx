@@ -8,7 +8,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 import { auth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut, db, firebaseAppConfig } from './firebase';
 import { generateContentWithRetry, generateContentStreamWithRetry, generateImage, generateMusic } from './lib/gemini';
 import { firestoreService } from './services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile, extractFilesFromMarkdown, extractUrlFromText, fetchWebsiteLinkContent } from './lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, getGeminiCompatibleMimeType, prepareCleanHistory, isTextFile, downloadExcelFile, downloadWordFile, downloadTextFile, extractFilesFromMarkdown, extractUrlsFromText, fetchWebUrlsData, formatWebUrlsForPrompt, isWebsiteCloneIntent } from './lib/utils';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from 'firebase/auth';
 import { serverTimestamp, Timestamp } from 'firebase/firestore';
 import mammoth from 'mammoth';
@@ -49,6 +49,54 @@ const CustomConfirm = ({ message, onConfirm, onCancel, theme }: { message: strin
     </div>
   </div>
 );
+
+const CustomPrompt = ({
+  title,
+  defaultValue,
+  placeholder,
+  onConfirm,
+  onCancel,
+  theme,
+}: {
+  title: string;
+  defaultValue: string;
+  placeholder?: string;
+  onConfirm: (value: string) => void;
+  onCancel: () => void;
+  theme: string;
+}) => {
+  const [value, setValue] = useState(defaultValue);
+  useEffect(() => {
+    setValue(defaultValue);
+  }, [defaultValue]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    onConfirm(trimmed);
+    onCancel();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <form onSubmit={handleSubmit} className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl border ${theme === 'dark' ? 'bg-[#1e1e1e] border-[#333] text-white' : 'bg-white border-gray-200 text-black'}`}>
+        <h3 className="text-lg font-bold mb-3">{title}</h3>
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder || 'Enter value...'}
+          className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none mb-5 ${theme === 'dark' ? 'bg-[#121212] border-[#333] text-white focus:border-[#00ff9d]' : 'bg-gray-50 border-gray-300 text-black focus:border-black'}`}
+        />
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onCancel} className={`px-4 py-2 rounded-xl border transition-colors font-medium text-sm ${theme === 'dark' ? 'border-[#444] hover:bg-[#333]' : 'border-[#ccc] hover:bg-[#eee]'}`}>Cancel</button>
+          <button type="submit" disabled={!value.trim()} className="px-4 py-2 rounded-xl bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 transition-colors font-medium text-sm">Confirm</button>
+        </div>
+      </form>
+    </div>
+  );
+};
 
 const AdminPanel = ({ token, theme }: { token: string | null, theme: string }) => {
   const [users, setUsers] = useState<any[]>([]);
@@ -1641,6 +1689,7 @@ export default function App() {
   const [editingIdeMessageIndex, setEditingIdeMessageIndex] = useState<number | null>(null);
   const [alertModal, setAlertModal] = useState<{isOpen: boolean, message: string}>({isOpen: false, message: ''});
   const [confirmModal, setConfirmModal] = useState<{isOpen: boolean, message: string, onConfirm: () => void}>({isOpen: false, message: '', onConfirm: () => {}});
+  const [promptModal, setPromptModal] = useState<{isOpen: boolean, title: string, defaultValue: string, placeholder?: string, onConfirm: (value: string) => void}>({isOpen: false, title: '', defaultValue: '', onConfirm: () => {}});
   const [messages, setMessages] = useState<Message[]>([]);
   const [ideMessages, setIdeMessages] = useState<Message[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
@@ -2614,8 +2663,10 @@ Return "Code executed successfully with no output." if the program produces abso
     }
   };
 
-  const handleIdeSubmit = async () => {
-    if (!idePrompt.trim() && ideSelectedFiles.length === 0) return;
+  const handleIdeSubmit = async (overridePrompt?: string | any, overrideEditIndex?: number) => {
+    const activeIdePrompt = typeof overridePrompt === 'string' ? overridePrompt : idePrompt;
+    const activeIdeEditIndex = typeof overrideEditIndex === 'number' ? overrideEditIndex : editingIdeMessageIndex;
+    if (!activeIdePrompt.trim() && ideSelectedFiles.length === 0) return;
     
     if (['html', 'web', 'javascript-web'].includes(canvasLanguage.toLowerCase()) && ideDbLinked === null) {
       setPendingIdeSubmitEvent(true);
@@ -2673,7 +2724,7 @@ Return "Code executed successfully with no output." if the program produces abso
       }
     }
 
-    const originalPrompt = idePrompt || (ideSelectedFiles.length > 0 ? `[${ideSelectedFiles.length} file(s) attached]` : "");
+    const originalPrompt = activeIdePrompt || (ideSelectedFiles.length > 0 ? `[${ideSelectedFiles.length} file(s) attached]` : "");
     const currentCode = canvasContent;
 
     // Add user message to UI immediately for "chat-like" feel
@@ -2689,9 +2740,9 @@ Return "Code executed successfully with no output." if the program produces abso
       }))
     };
 
-    if (editingIdeMessageIndex !== null) {
+    if (activeIdeEditIndex !== null) {
       setIdeMessages(prev => {
-        const truncated = prev.slice(0, editingIdeMessageIndex);
+        const truncated = prev.slice(0, activeIdeEditIndex);
         return [...truncated, userMsg];
       });
     } else {
@@ -2714,8 +2765,8 @@ Return "Code executed successfully with no output." if the program produces abso
     }
 
     if (activeConvId) {
-      if (editingIdeMessageIndex !== null && ideMessages[editingIdeMessageIndex]?.timestamp) {
-        const threshold = ideMessages[editingIdeMessageIndex].timestamp;
+      if (activeIdeEditIndex !== null && ideMessages[activeIdeEditIndex]?.timestamp) {
+        const threshold = ideMessages[activeIdeEditIndex].timestamp;
         const firestoreTimestamp = typeof threshold === 'number' ? Timestamp.fromMillis(threshold) : threshold;
         try {
           await firestoreService.deleteSandboxMessagesAfter(user.id, activeConvId, firestoreTimestamp, true);
@@ -2732,21 +2783,16 @@ Return "Code executed successfully with no output." if the program produces abso
     }
 
     let appendedPromptContext = "";
-    const extractedUrl = extractUrlFromText(originalPrompt);
-    if (extractedUrl) {
-      // Show thinking UI with a specific message
+    const ideExtractedUrls = extractUrlsFromText(originalPrompt, 5);
+    const ideCloneIntent = isWebsiteCloneIntent(originalPrompt);
+    if (ideExtractedUrls.length > 0) {
       setIdeMessages(prev => {
         const urlMsgId = Date.now().toString() + "-url-fetch";
-        return [...prev, { role: 'ai', text: `Extracting data from ${extractedUrl}...`, id: urlMsgId, timestamp: Date.now() }];
+        return [...prev, { role: 'ai', text: `Reading live website data from ${ideExtractedUrls.join(', ')}...`, id: urlMsgId, timestamp: Date.now() }];
       });
-      const urlContent = await fetchWebsiteLinkContent(extractedUrl);
-      
-      // Remove the fetching message
+      const webResults = await fetchWebUrlsData(ideExtractedUrls);
       setIdeMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
-
-      if (urlContent) {
-        appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 100000)}`;
-      }
+      appendedPromptContext = formatWebUrlsForPrompt(webResults, { includeRawHtml: ideCloneIntent, cloneMode: ideCloneIntent });
     }
 
     const inputParts: any[] = [{ text: truncateText(originalPrompt + appendedPromptContext, 500000) }];
@@ -2820,8 +2866,8 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       try {
         let historyToUse = ideMessages;
-        if (editingIdeMessageIndex !== null) {
-          historyToUse = ideMessages.slice(0, editingIdeMessageIndex);
+        if (activeIdeEditIndex !== null) {
+          historyToUse = ideMessages.slice(0, activeIdeEditIndex);
         }
         const cleanedHistory = prepareCleanHistory(historyToUse, 200, 2000000);
 
@@ -2832,6 +2878,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         const ideTools: any[] = [];
         if (useWebSearch) {
           ideTools.push({ googleSearch: {} });
+        }
+        if (ideExtractedUrls.length > 0) {
+          ideTools.push({ urlContext: {} });
         }
 
         try {
@@ -2887,6 +2936,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
             message: "Neural Quota Exceeded. Switching to internal cache..." 
           });
         }
+        setIdeMessages(prev => prev.map(m => m.id === aiMsgId ? { ...m, text: `Error: ${error?.message || 'Unable to reach AI service. Please retry.'}` } : m));
         throw error;
       }
 
@@ -3133,7 +3183,36 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     }
   };
 
-  const handleSend = async (text: string = inputText, isVoiceResponse: boolean = false) => {
+  const handleRetry = (aiIndex: number) => {
+    for (let idx = aiIndex - 1; idx >= 0; idx--) {
+      if (messages[idx]?.role === 'user') {
+        let cleanText = messages[idx].text || '';
+        cleanText = cleanText.replace(/\[\d+ file\(s\) attached\]/g, '').trim();
+        handleSend(cleanText, false, idx, messages[idx].files || []);
+        return;
+      }
+    }
+  };
+
+  const handleIdeRetry = (aiIndex: number) => {
+    for (let idx = aiIndex - 1; idx >= 0; idx--) {
+      if (ideMessages[idx]?.role === 'user') {
+        let cleanText = ideMessages[idx].text || '';
+        if (cleanText.startsWith('[SANDBOX] ')) cleanText = cleanText.substring(10);
+        else if (cleanText.startsWith('[SANDBOX]')) cleanText = cleanText.substring(9);
+        cleanText = cleanText.replace(/\[\d+ file\(s\) attached\]/g, '').trim();
+        handleIdeSubmit(cleanText, idx);
+        return;
+      }
+    }
+  };
+
+  const handleSend = async (
+    text: string = inputText,
+    isVoiceResponse: boolean = false,
+    overrideEditIndex?: number,
+    overrideFiles?: any[]
+  ) => {
     const now = Date.now();
     if (isSendingRef.current || isThinking || (now - lastSendTimeRef.current < 500)) return;
     
@@ -3147,8 +3226,10 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       setCurrentConversationId(null);
     }
 
+    const activeEditIndex = overrideEditIndex !== undefined ? overrideEditIndex : editingMessageIndex;
+    const currentFiles = overrideFiles !== undefined ? [...overrideFiles] : [...selectedFiles];
     const messageText = text.trim();
-    if (!messageText && selectedFiles.length === 0) {
+    if (!messageText && currentFiles.length === 0) {
       isSendingRef.current = false;
       return;
     }
@@ -3159,7 +3240,6 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       return;
     }
 
-    const currentFiles = [...selectedFiles];
     setInputText('');
     setSelectedFiles([]);
     setIsThinking(true);
@@ -3180,9 +3260,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
     };
     
     // Optimistic UI for user message
-    if (editingMessageIndex !== null) {
+    if (activeEditIndex !== null) {
       setMessages(prev => {
-        const truncated = prev.slice(0, editingMessageIndex);
+        const truncated = prev.slice(0, activeEditIndex);
         return [...truncated, userMessage];
       });
     } else {
@@ -3262,9 +3342,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
     // Save user message to Firestore in background
     if (activeConvId && user) {
-      if (editingMessageIndex !== null && messages[editingMessageIndex]?.timestamp) {
+      if (activeEditIndex !== null && messages[activeEditIndex]?.timestamp) {
         // Fix for "real world AI" behavior: delete subsequent messages (inclusive to replace original)
-        const threshold = messages[editingMessageIndex].timestamp;
+        const threshold = messages[activeEditIndex].timestamp;
         const firestoreTimestamp = typeof threshold === 'number' ? Timestamp.fromMillis(threshold) : threshold;
         try {
           await firestoreService.deleteMessagesAfter(user.id, activeConvId, firestoreTimestamp, true);
@@ -3297,24 +3377,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       // Optimized history: only capture relevant context
       // If it's a new start or no ID, history must be empty to avoid topic mixing
       let currentMessagesForHistory = messages;
-      if (editingMessageIndex !== null) {
-        currentMessagesForHistory = messages.slice(0, editingMessageIndex);
+      if (activeEditIndex !== null) {
+        currentMessagesForHistory = messages.slice(0, activeEditIndex);
       }
       
       const chatHistory = (isNewStart || !activeConvId) ? [] : prepareCleanHistory(currentMessagesForHistory, 200, 2000000);
 
       let appendedPromptContext = "";
-      const extractedUrl = extractUrlFromText(text);
-      if (extractedUrl) {
+      const extractedUrls = extractUrlsFromText(text, 5);
+      const cloneIntent = isWebsiteCloneIntent(text);
+      if (extractedUrls.length > 0) {
+         setThinkingMessage(`Reading live data from ${extractedUrls.length} link(s)...`);
          setMessages(prev => {
             const urlMsgId = Date.now().toString() + "-url-fetch";
-            return [...prev, { role: 'ai', text: `Extracting data from ${extractedUrl}...`, id: urlMsgId, timestamp: Date.now() }];
+            return [...prev, { role: 'ai', text: `Reading data from ${extractedUrls.join(', ')}...`, id: urlMsgId, timestamp: Date.now() }];
          });
-         const urlContent = await fetchWebsiteLinkContent(extractedUrl);
+         const webResults = await fetchWebUrlsData(extractedUrls);
          setMessages(prev => prev.filter(m => !m.id || !m.id.toString().endsWith("-url-fetch")));
-         if (urlContent) {
-           appendedPromptContext = `\n\n[USER PROVIDED THIS WEBSITE LINK: ${extractedUrl}]\n[WEBSITE CONTENT FETCHED SUCCESSFULLY. YOUR SOLE AND MOST IMPORTANT TASK IS TO REPLICATE THE FOLLOWING HTML/WEBSITE 100% IDENTICALLY. YOU MUST PRODUCE A PERFECT PIXEL-PERFECT CLONE. DO NOT OMIT ANY TEXT, DATA, OR CONTENT. KEEP EVERY SINGLE WORD EXACTLY THE SAME. REPLICATE THE EXACT DESIGN, STYLES, LAYOUT, CONTENT, AND BEHAVIOR WITHOUT ANY MODIFICATIONS OR SUMMARIES:]\n${truncateText(urlContent, 100000)}`;
-         }
+         appendedPromptContext = formatWebUrlsForPrompt(webResults, { includeRawHtml: cloneIntent, cloneMode: cloneIntent });
       }
 
       const inputParts: any[] = [];
@@ -3384,6 +3464,9 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       const chatTools: any[] = [];
       if (useWebSearch) {
         chatTools.push({ googleSearch: {} });
+      }
+      if (extractedUrls.length > 0) {
+        chatTools.push({ urlContext: {} });
       }
 
       const streamResult = await generateContentStreamWithRetry({
@@ -3682,7 +3765,14 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
         errorMessage = "The AI model is currently unavailable or the model name is incorrect. Please try switching models or contact support.";
       }
       
-      setMessages(prev => [...prev, { role: 'ai', text: `Oops! ${errorMessage}` }]);
+      setMessages(prev => {
+        const errorText = `Oops! ${errorMessage}`;
+        const hasPlaceholder = prev.some(m => m.id?.toString().endsWith("-ai-streaming"));
+        if (hasPlaceholder) {
+          return prev.map(m => m.id?.toString().endsWith("-ai-streaming") ? { ...m, text: errorText, id: Date.now().toString() + "-ai-error" } : m);
+        }
+        return [...prev, { role: 'ai', text: errorText }];
+      });
     } finally {
       setIsThinking(false);
       isSendingRef.current = false;
@@ -3714,6 +3804,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       if (count >= 4) {
         setAlertModal({ isOpen: true, message: "Daily limit reached. Free users can generate 4 images per day. Please upgrade to SuperXer0byte for unlimited generation." });
+        isSendingRef.current = false;
         return;
       }
       
@@ -3985,17 +4076,24 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
 
   const handleUpdateName = async () => {
     if (!user) return;
-    const newName = prompt("Enter your new name:", user.name);
-    if (newName && newName !== user.name) {
-      try {
-        await firestoreService.updateUserProfile(user.id, { name: newName });
-        if (auth.currentUser) await updateProfile(auth.currentUser, { displayName: newName });
-        setUser(prev => prev ? { ...prev, name: newName } : null);
-        setAlertModal({ isOpen: true, message: "Name updated successfully!" });
-      } catch (error: any) {
-        setAlertModal({ isOpen: true, message: "Failed to update name." });
-      }
-    }
+    setPromptModal({
+      isOpen: true,
+      title: 'Update Display Name',
+      defaultValue: user.name || '',
+      placeholder: 'Enter your new name...',
+      onConfirm: async (newName: string) => {
+        if (newName && newName !== user.name) {
+          try {
+            await firestoreService.updateUserProfile(user.id, { name: newName });
+            if (auth.currentUser) await updateProfile(auth.currentUser, { displayName: newName });
+            setUser(prev => prev ? { ...prev, name: newName } : null);
+            setAlertModal({ isOpen: true, message: "Name updated successfully!" });
+          } catch (error: any) {
+            setAlertModal({ isOpen: true, message: "Failed to update name." });
+          }
+        }
+      },
+    });
   };
 
   const handleLogout = async () => {
@@ -4964,6 +5062,16 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
       
       {alertModal.isOpen && <CustomAlert message={alertModal.message} theme={theme} onClose={() => setAlertModal({isOpen: false, message: ''})} />}
       {confirmModal.isOpen && <CustomConfirm message={confirmModal.message} theme={theme} onConfirm={confirmModal.onConfirm} onCancel={() => setConfirmModal({...confirmModal, isOpen: false})} />}
+      {promptModal.isOpen && (
+        <CustomPrompt
+          title={promptModal.title}
+          defaultValue={promptModal.defaultValue}
+          placeholder={promptModal.placeholder}
+          theme={theme}
+          onConfirm={promptModal.onConfirm}
+          onCancel={() => setPromptModal(prev => ({ ...prev, isOpen: false }))}
+        />
+      )}
 
       {/* Code Split-Diff Preview Modal */}
       {pendingCodeUpdate && (
@@ -5799,6 +5907,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                     setAlertModal={setAlertModal}
                     setInputText={setInputText}
                     handleEdit={handleEdit}
+                    onRetry={handleRetry}
                     setCanvasLanguage={setCanvasLanguage}
                     setCanvasContent={setCanvasContent}
                     setCanvasActiveProjectId={setCanvasActiveProjectId}
@@ -6843,6 +6952,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                                  setAlertModal={setAlertModal}
                                  setInputText={setIdePrompt}
                                  handleEdit={handleIdeEdit}
+                                 onRetry={handleIdeRetry}
                                  setCanvasLanguage={setCanvasLanguage}
                                  setCanvasContent={setCanvasContent}
                                  setCanvasActiveProjectId={setCanvasActiveProjectId}
@@ -7079,12 +7189,19 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                         </label>
                         <button 
                           onClick={() => {
-                            const newFilename = prompt("Enter new filename (e.g., script.js):", "newFile.js");
-                            if (newFilename) {
-                               setIdeFiles(prev => [...prev, { name: newFilename, content: "" }]);
-                               setIdeActiveFile(newFilename);
-                               setCanvasContent("");
-                            }
+                            setPromptModal({
+                              isOpen: true,
+                              title: 'Create New Workspace File',
+                              defaultValue: 'newFile.js',
+                              placeholder: 'e.g., script.js or styles.css',
+                              onConfirm: (newFilename: string) => {
+                                if (newFilename) {
+                                  setIdeFiles(prev => [...prev, { name: newFilename, content: "" }]);
+                                  setIdeActiveFile(newFilename);
+                                  setCanvasContent("");
+                                }
+                              },
+                            });
                           }}
                           title="New File"
                           className="hover:text-[#00ff9d] opacity-50 hover:opacity-100 transition-colors"
@@ -7095,13 +7212,25 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           onClick={async () => {
                             try {
                               const JSZip = (await import('jszip')).default;
-                              const { saveAs } = (await import('file-saver')).default;
+                              const fileSaverMod: any = await import('file-saver');
+                              const saveAsFn = fileSaverMod.saveAs || fileSaverMod.default?.saveAs || fileSaverMod.default;
                               const zip = new JSZip();
                               ideFiles.forEach(f => {
                                   zip.file(f.name, f.content);
                               });
                               const content = await zip.generateAsync({type:"blob"});
-                              saveAs(content, "workspace.zip");
+                              if (typeof saveAsFn === 'function') {
+                                saveAsFn(content, "workspace.zip");
+                              } else {
+                                const url = URL.createObjectURL(content);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = "workspace.zip";
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                              }
                             } catch(err: any) {
                                console.error(err);
                                setAlertModal({isOpen: true, message: "Failed to create ZIP: " + err.message});
@@ -7329,7 +7458,7 @@ ${Object.keys(sessionAssets).length > 0 ? `7. ASSETS: You have access to images:
                           <Mic size={20} />
                         </button>
                         <button 
-                         onClick={handleIdeSubmit}
+                         onClick={() => handleIdeSubmit()}
                          disabled={(!idePrompt.trim() && ideSelectedFiles.length === 0) || isThinkingIde}
                          className={`p-2.5 rounded-full transition-all flex items-center justify-center ${(idePrompt.trim() || ideSelectedFiles.length > 0) ? (theme === 'dark' ? 'bg-[#00ff9d] text-black hover:bg-white hover:scale-105' : 'bg-black text-white hover:bg-gray-800 hover:scale-105') : (theme === 'dark' ? 'bg-[#333] text-gray-500 cursor-not-allowed' : 'bg-[#ddd] text-gray-500 cursor-not-allowed')}`}
                         >

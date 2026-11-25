@@ -6,7 +6,7 @@ import JSZip from 'jszip';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import { firestoreService } from '../services/firestoreService';
-import { copyToClipboard, getUnrarExtractor, truncateText, prepareCleanHistory } from '../lib/utils';
+import { copyToClipboard, getUnrarExtractor, truncateText, prepareCleanHistory, extractUrlsFromText, fetchWebUrlsData, formatWebUrlsForPrompt } from '../lib/utils';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
@@ -76,6 +76,10 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
   const [isAddingSource, setIsAddingSource] = useState(false);
   const [newSourceTitle, setNewSourceTitle] = useState('');
   const [newSourceContent, setNewSourceContent] = useState('');
+  const [newSourceUrl, setNewSourceUrl] = useState('');
+  const [newSourceType, setNewSourceType] = useState<'text' | 'pdf' | 'link'>('text');
+  const [isFetchingLink, setIsFetchingLink] = useState(false);
+  const [noticeBanner, setNoticeBanner] = useState<{ message: string; type: 'error' | 'info' } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [activeTab, setActiveTab] = useState<'chat' | 'sources' | 'notes'>('chat');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -170,13 +174,44 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     }
   };
 
+  const handleFetchSourceUrl = async () => {
+    const urls = extractUrlsFromText(newSourceUrl.trim(), 3);
+    if (urls.length === 0) {
+      setNoticeBanner({ message: 'Please enter a valid http:// or https:// URL to fetch.', type: 'error' });
+      return;
+    }
+    setIsFetchingLink(true);
+    setNoticeBanner(null);
+    try {
+      const results = await fetchWebUrlsData(urls);
+      const firstOk = results.find((r) => r.ok && r.readableText);
+      if (!firstOk) {
+        setNoticeBanner({ message: results[0]?.error || 'Could not extract readable text from that URL.', type: 'error' });
+        return;
+      }
+      if (!newSourceTitle.trim()) {
+        setNewSourceTitle(firstOk.title || new URL(firstOk.url).hostname);
+      }
+      setNewSourceContent(formatWebUrlsForPrompt(results, { includeRawHtml: false, cloneMode: false }).trim());
+      setNewSourceType('link');
+      setNoticeBanner({ message: `Extracted content from ${firstOk.url}`, type: 'info' });
+    } catch (err: any) {
+      setNoticeBanner({ message: err?.message || 'Failed to read website link.', type: 'error' });
+    } finally {
+      setIsFetchingLink(false);
+    }
+  };
+
   const handleAddSource = async () => {
     if (!newSourceTitle.trim() || !newSourceContent.trim()) return;
     
+    const detectedType: 'text' | 'pdf' | 'link' =
+      newSourceType === 'link' || extractUrlsFromText(newSourceContent, 1).length > 0 ? 'link' : 'text';
+
     const newSource: Partial<Source> = {
       title: newSourceTitle,
       content: newSourceContent,
-      type: 'text',
+      type: detectedType,
       selected: true
     };
     
@@ -192,6 +227,8 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
     setIsAddingSource(false);
     setNewSourceTitle('');
     setNewSourceContent('');
+    setNewSourceUrl('');
+    setNewSourceType('text');
   };
 
   const addSourceToState = async (title: string, content: string, type: 'text' | 'pdf' | 'link') => {
@@ -270,11 +307,11 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                }
             }
           }
-          if (count === 0) alert("No readable files found in RAR.");
+          if (count === 0) setNoticeBanner({ message: "No readable files found in RAR.", type: 'error' });
           setIsAddingSource(false);
         } catch (err) {
           console.error("RAR read error:", err);
-          alert("Could not read this RAR file. Ensure it's not password protected.");
+          setNoticeBanner({ message: "Could not read this RAR file. Ensure it's not password protected.", type: 'error' });
         }
       };
       reader.readAsArrayBuffer(file);
@@ -329,12 +366,12 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
             }
           }
           if (count === 0) {
-            alert("No readable files found in ZIP.");
+            setNoticeBanner({ message: "No readable files found in ZIP.", type: 'error' });
           }
           setIsAddingSource(false);
         } catch (err) {
           console.error("ZIP read error:", err);
-          alert("Could not read this ZIP file.");
+          setNoticeBanner({ message: "Could not read this ZIP file.", type: 'error' });
         }
       };
       reader.readAsArrayBuffer(file);
@@ -353,7 +390,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
           setIsAddingSource(false);
         } catch (err) {
           console.error("DOCX read error:", err);
-          alert("Could not read this DOCX file.");
+          setNoticeBanner({ message: "Could not read this DOCX file.", type: 'error' });
         }
       };
       reader.readAsArrayBuffer(file);
@@ -380,7 +417,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
           setIsAddingSource(false);
         } catch (err) {
           console.error("PDF read error:", err);
-          alert("Could not read this PDF. It may be password protected or corrupted.");
+          setNoticeBanner({ message: "Could not read this PDF. It may be password protected or corrupted.", type: 'error' });
         }
       };
       reader.readAsArrayBuffer(file);
@@ -617,11 +654,24 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
 
   return (
     <div 
-      className={`flex h-full w-full overflow-hidden ${isDark ? 'bg-[#0f0f0f] text-white' : 'bg-[#f7f8f9] text-gray-900'}`}
+      className={`flex h-full w-full overflow-hidden relative ${isDark ? 'bg-[#0f0f0f] text-white' : 'bg-[#f7f8f9] text-gray-900'}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* In-App Notice Banner */}
+      {noticeBanner && (
+        <div className={`fixed top-4 right-4 z-[220] max-w-sm px-4 py-3 rounded-xl shadow-xl border flex items-center gap-3 text-xs font-medium animate-in fade-in slide-in-from-top-2 ${
+          noticeBanner.type === 'error'
+            ? 'bg-red-600 text-white border-red-500'
+            : (isDark ? 'bg-[#1a1a1a] text-white border-[#333]' : 'bg-white text-gray-900 border-gray-200')
+        }`}>
+          <span className="flex-1">{noticeBanner.message}</span>
+          <button onClick={() => setNoticeBanner(null)} className="opacity-80 hover:opacity-100">
+            <X size={14} />
+          </button>
+        </div>
+      )}
       {/* Global Drag Overlay */}
       {isDragging && (
         <div className="fixed inset-0 z-[200] bg-blue-600/20 backdrop-blur-sm border-4 border-dashed border-blue-500 flex items-center justify-center animate-in fade-in duration-200">
@@ -693,7 +743,7 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{s.title}</div>
                   <div className="text-[10px] opacity-50 flex items-center gap-1 uppercase tracking-wider">
-                    {s.type === 'pdf' ? 'PDF' : 'Original Text'}
+                    {s.type === 'pdf' ? 'PDF' : s.type === 'link' ? 'Web Link' : 'Original Text'}
                   </div>
                 </div>
                 <button onClick={(e) => { 
@@ -868,8 +918,18 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                           <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/10 transition-colors"><Edit2 size={16}/></button>
-                           <button className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors"><Trash2 size={16}/></button>
+                           <button
+                             onClick={() => {
+                               if (!selectedSourceId) return;
+                               if (user) { firestoreService.deleteSource(user.id, selectedSourceId); }
+                               else { setSources(prev => prev.filter(src => src.id !== selectedSourceId)); }
+                               setSelectedSourceId(null);
+                             }}
+                             className="p-2 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors"
+                             title="Delete Source"
+                           >
+                             <Trash2 size={16}/>
+                           </button>
                         </div>
                       </div>
                       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
@@ -1108,6 +1168,29 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
             
             <div className="p-6 space-y-4">
               <div>
+                <label className="text-xs font-bold uppercase tracking-widest opacity-40 mb-2 block">Import from Website URL</label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Link size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-50" />
+                    <input
+                      value={newSourceUrl}
+                      onChange={(e) => setNewSourceUrl(e.target.value)}
+                      placeholder="https://example.com/article"
+                      className={`w-full pl-10 pr-4 py-3 rounded-xl border text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500/20 ${isDark ? 'bg-white/5 border-white/10 focus:border-blue-500/50' : 'bg-gray-50 border-gray-200 focus:border-blue-500/50'}`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleFetchSourceUrl}
+                    disabled={!newSourceUrl.trim() || isFetchingLink}
+                    className="px-4 py-3 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-40 transition-all shrink-0"
+                  >
+                    {isFetchingLink ? 'Reading...' : 'Fetch Link'}
+                  </button>
+                </div>
+              </div>
+
+              <div>
                 <label className="text-xs font-bold uppercase tracking-widest opacity-40 mb-2 block">Source Title</label>
                 <input 
                   autoFocus
@@ -1122,9 +1205,9 @@ export default function NotebookUI({ theme, user }: { theme?: string, user?: any
                 <label className="text-xs font-bold uppercase tracking-widest opacity-40 mb-2 block">Content</label>
                 <textarea 
                   value={newSourceContent}
-                  onChange={(e) => setNewSourceContent(e.target.value)}
-                  placeholder="Paste text, research findings, or URLs..."
-                  className={`w-full p-4 rounded-xl border outline-none min-h-[200px] resize-none transition-all focus:ring-2 focus:ring-blue-500/20 ${isDark ? 'bg-white/5 border-white/10 focus:border-blue-500/50' : 'bg-gray-50 border-gray-200 focus:border-blue-500/50'}`}
+                  onChange={(e) => { setNewSourceContent(e.target.value); setNewSourceType('text'); }}
+                  placeholder="Paste text, research findings, or fetch a URL above..."
+                  className={`w-full p-4 rounded-xl border outline-none min-h-[160px] resize-none transition-all focus:ring-2 focus:ring-blue-500/20 ${isDark ? 'bg-white/5 border-white/10 focus:border-blue-500/50' : 'bg-gray-50 border-gray-200 focus:border-blue-500/50'}`}
                 />
               </div>
 

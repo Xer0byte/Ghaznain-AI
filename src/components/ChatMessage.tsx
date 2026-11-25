@@ -85,6 +85,7 @@ interface ChatMessageProps {
   setView: (view: any) => void;
   setModals: (modals: any) => void;
   handleEdit?: (index: number) => void;
+  onRetry?: (index: number) => void;
   isThinking?: boolean;
   compact?: boolean;
 }
@@ -205,7 +206,7 @@ const MemoizedMarkdown = React.memo(({ content, theme }: { content: string; them
 const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(({ 
   msg, i, messagesLength, theme, user, copyToClipboard, 
   setAlertModal, setInputText, setCanvasLanguage, setCanvasContent, 
-  setCanvasActiveProjectId, setView, setModals, handleEdit, compact = false
+  setCanvasActiveProjectId, setView, setModals, handleEdit, onRetry, compact = false
 }, ref) => {
   const isAI = msg.role === 'ai';
   const [isZipping, setIsZipping] = useState(false);
@@ -513,7 +514,11 @@ const ChatMessageComponent = React.forwardRef<HTMLDivElement, ChatMessageProps>(
                 {i === messagesLength - 1 && (
                   <button 
                     onClick={() => {
-                      setInputText(msg.text);
+                      if (onRetry) {
+                        onRetry(i);
+                      } else if (handleEdit) {
+                        handleEdit(Math.max(0, i - 1));
+                      }
                     }} 
                     className={`px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-2 shadow-sm transition-all active:scale-95 border ${
                       theme === 'dark' 

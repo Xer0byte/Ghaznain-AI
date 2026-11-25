@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { generateContentStreamWithRetry } from '../lib/gemini';
 import { STARTER_TEMPLATES, StarterTemplate } from '../lib/templates';
-import { copyToClipboard, downloadTextFile } from '../lib/utils';
+import { copyToClipboard, downloadTextFile, extractUrlsFromText, fetchWebUrlsData, formatWebUrlsForPrompt } from '../lib/utils';
 
 interface BrandMemory {
   brandName: string;
@@ -212,11 +212,22 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     setAgentOutput('');
 
     try {
-      const fullPrompt = `${promptToRun}${agentAttachedText ? `\n\nATTACHED DATA / CONTEXT:\n${agentAttachedText}` : ''}`;
+      const baseText = `${promptToRun}${agentAttachedText ? `\n\nATTACHED DATA / CONTEXT:\n${agentAttachedText}` : ''}`;
+      const detectedUrls = extractUrlsFromText(baseText, 5);
+      let urlContextAppend = '';
+      if (detectedUrls.length > 0) {
+        setAgentOutput(`Reading live data from ${detectedUrls.join(', ')}...`);
+        const webResults = await fetchWebUrlsData(detectedUrls);
+        urlContextAppend = formatWebUrlsForPrompt(webResults, { includeRawHtml: false, cloneMode: false });
+        setAgentOutput('');
+      }
+
+      const fullPrompt = `${baseText}${urlContextAppend}`;
       const stream = await generateContentStreamWithRetry({
         model: 'gemini-4-hydrogen',
         systemInstruction: `${activeAgent.systemPrompt}\n\n${brandContextBlock}\n\nRules: Output high-signal, actionable business work. Use Markdown tables where structured comparison helps. Never fabricate fake client metrics or credentials.`,
         contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+        tools: detectedUrls.length > 0 ? [{ urlContext: {} }] : undefined,
       });
 
       let accumulated = '';
@@ -304,9 +315,16 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     setListingOutput('');
 
     try {
+      const detectedUrls = extractUrlsFromText(`${productName} ${productSpecs}`, 3);
+      let webContextBlock = '';
+      if (detectedUrls.length > 0) {
+        const webResults = await fetchWebUrlsData(detectedUrls);
+        webContextBlock = formatWebUrlsForPrompt(webResults, { includeRawHtml: false, cloneMode: false });
+      }
+
       const parts: any[] = [
         {
-          text: `Product Name: ${productName || 'Analyze from attached image'}\nDetails / Audience / Price: ${productSpecs || 'Standard retail positioning'}\nTarget Localization: ${targetLang}\n\nGenerate a complete e-commerce launch pack:\n1. High-converting Shopify / Amazon Title (SEO + clarity)\n2. 5 Benefit-driven Bullet Points\n3. Answer-First Product Description + 3 GEO/FAQ questions\n4. 3 Meta / TikTok Ad Hooks + 1 Short UGC Video Script\n5. Clean JSON-LD Product Schema snippet ready for storefront deployment.`,
+          text: `Product Name: ${productName || 'Analyze from attached image or link'}\nDetails / Audience / Price: ${productSpecs || 'Standard retail positioning'}${webContextBlock}\nTarget Localization: ${targetLang}\n\nGenerate a complete e-commerce launch pack:\n1. High-converting Shopify / Amazon Title (SEO + clarity)\n2. 5 Benefit-driven Bullet Points\n3. Answer-First Product Description + 3 GEO/FAQ questions\n4. 3 Meta / TikTok Ad Hooks + 1 Short UGC Video Script\n5. Clean JSON-LD Product Schema snippet ready for storefront deployment.`,
         },
       ];
       if (productImage) {
@@ -317,6 +335,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
         model: 'gemini-4-hydrogen',
         systemInstruction: `You are an elite E-Commerce Merchandising, SEO/GEO, and Paid Acquisition AI.\n\n${brandContextBlock}\n\nWrite crisp, factual, conversion-oriented copy without fabricated claims or fake reviews.`,
         contents: [{ role: 'user', parts }],
+        tools: detectedUrls.length > 0 ? [{ urlContext: {} }] : undefined,
       });
 
       let accumulated = '';
@@ -1001,7 +1020,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                   </div>
                   <div>
                     <div className="text-[11px] opacity-60">Net Margin</div>
-                    <div className={`text-base font-bold tabular-nums mt-0.5 ${netMarginPct >= 15 ? 'text-white dark:text-white' : 'text-amber-500'}`}>
+                    <div className={`text-base font-bold tabular-nums mt-0.5 ${netMarginPct >= 15 ? (isDark ? 'text-white' : 'text-neutral-900') : 'text-amber-500'}`}>
                       {netMarginPct.toFixed(1)}%
                     </div>
                   </div>

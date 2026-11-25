@@ -2,32 +2,165 @@ import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { Document, Packer, Paragraph, TextRun } from 'docx';
 
+export interface WebUrlReadResult {
+  url: string;
+  requestedUrl?: string;
+  ok: boolean;
+  fetchMethod?: string;
+  contentType?: string;
+  title?: string;
+  description?: string;
+  headings?: string[];
+  links?: string[];
+  jsonLdBlocks?: string[];
+  readableText?: string;
+  rawHtml?: string;
+  error?: string;
+}
+
+const cleanExtractedUrl = (raw: string): string => {
+  let cleaned = raw.trim().replace(/[.,;:!?)\]}"'>]+$/g, '');
+  if (!/^https?:\/\//i.test(cleaned) && /^www\./i.test(cleaned)) {
+    cleaned = `https://${cleaned}`;
+  }
+  return cleaned;
+};
+
+export const extractUrlsFromText = (text: string, maxUrls: number = 5): string[] => {
+  if (!text) return [];
+  const urlRegex = /(?:https?:\/\/|www\.)[^\s<>"'`]+/gi;
+  const matches = text.match(urlRegex) || [];
+  const seen = new Set<string>();
+  const results: string[] = [];
+
+  for (const raw of matches) {
+    const cleaned = cleanExtractedUrl(raw);
+    try {
+      const parsed = new URL(cleaned);
+      if ((parsed.protocol === 'http:' || parsed.protocol === 'https:') && !seen.has(parsed.href)) {
+        seen.add(parsed.href);
+        results.push(parsed.href);
+        if (results.length >= maxUrls) break;
+      }
+    } catch {
+      // Skip malformed URL-like tokens
+    }
+  }
+  return results;
+};
+
 export const extractUrlFromText = (text: string): string | null => {
-  const urlRegex = /(https?:\/\/[^\s]+)/g;
-  const match = text.match(urlRegex);
-  return match ? match[0] : null;
+  const urls = extractUrlsFromText(text, 1);
+  return urls.length > 0 ? urls[0] : null;
+};
+
+export const isWebsiteCloneIntent = (text: string): boolean => {
+  if (!text) return false;
+  return /\b(clone|replicate|copy\s+(this\s+)?(site|website|page|ui|design|layout)|pixel[- ]perfect|rebuild\s+(this\s+)?(site|website|page)|same\s+(website|design|layout))\b/i.test(text);
+};
+
+export const fetchWebUrlsData = async (urls: string[]): Promise<WebUrlReadResult[]> => {
+  const cleanUrls = urls.slice(0, 5);
+  if (cleanUrls.length === 0) return [];
+
+  try {
+    const response = await fetch('/api/read-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls: cleanUrls }),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data?.results)) {
+        return data.results;
+      }
+    }
+  } catch (err) {
+    console.warn('/api/read-url request failed, falling back to /api/proxy:', err);
+  }
+
+  // Per-URL fallback via /api/proxy if /api/read-url failed
+  const fallbackResults = await Promise.all(
+    cleanUrls.map(async (url): Promise<WebUrlReadResult> => {
+      try {
+        const res = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+        if (res.ok) {
+          const text = await res.text();
+          return {
+            url,
+            requestedUrl: url,
+            ok: Boolean(text),
+            fetchMethod: 'proxy-fallback',
+            readableText: text.slice(0, 60000),
+            rawHtml: text.slice(0, 45000),
+          };
+        }
+      } catch {
+        // Ignore
+      }
+      return {
+        url,
+        requestedUrl: url,
+        ok: false,
+        error: 'Could not directly fetch URL; relying on AI URL Context.',
+        readableText: '',
+      };
+    })
+  );
+
+  return fallbackResults;
 };
 
 export const fetchWebsiteLinkContent = async (url: string): Promise<string | null> => {
-  try {
-    const response = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
-    if (!response.ok) throw new Error(`Custom Proxy Fetch failed: ${response.statusText}`);
-    const htmlText = await response.text();
-    return htmlText || null;
-  } catch (error) {
-    console.error("Failed to fetch website content via /api/proxy, trying fallback :", error);
-    try {
-      const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-      const fallbackResponse = await fetch(proxyUrl);
-      if (!fallbackResponse.ok) return null;
-      const data = await fallbackResponse.json();
-      return data.contents || null;
-    } catch (fallbackErr) {
-       console.error("Fallback fetch also failed:", fallbackErr);
-       return null;
-    }
-  }
+  const results = await fetchWebUrlsData([url]);
+  const first = results[0];
+  if (!first || !first.ok) return null;
+  return first.rawHtml || first.readableText || null;
 };
+
+export const formatWebUrlsForPrompt = (
+  results: WebUrlReadResult[],
+  options: { includeRawHtml?: boolean; cloneMode?: boolean } = {}
+): string => {
+  if (!results || results.length === 0) return '';
+
+  const formattedSections = results.map((res, idx) => {
+    const header = `--- WEB SOURCE #${idx + 1}: ${res.url} ---`;
+    if (!res.ok && !res.readableText) {
+      return `${header}\nStatus: Direct server fetch unavailable (${res.error || 'blocked or unreachable'}). Use the Google URL Context tool to read ${res.url} directly.`;
+    }
+
+    const parts: string[] = [header];
+    if (res.title) parts.push(`Title: ${res.title}`);
+    if (res.description) parts.push(`Meta Description: ${res.description}`);
+    if (res.contentType) parts.push(`Content-Type: ${res.contentType}`);
+    if (res.fetchMethod) parts.push(`Extraction Mode: ${res.fetchMethod}`);
+
+    if (res.headings && res.headings.length > 0) {
+      parts.push(`\nKey Headings:\n${res.headings.slice(0, 25).join('\n')}`);
+    }
+    if (res.jsonLdBlocks && res.jsonLdBlocks.length > 0) {
+      parts.push(`\nStructured Data (JSON-LD):\n${res.jsonLdBlocks.slice(0, 3).join('\n---\n')}`);
+    }
+    if (res.readableText) {
+      parts.push(`\nExtracted Page Content:\n${truncateText(res.readableText, 45000)}`);
+    }
+    if (res.links && res.links.length > 0) {
+      parts.push(`\nNotable Links Found:\n${res.links.slice(0, 25).join('\n')}`);
+    }
+    if (options.includeRawHtml && res.rawHtml) {
+      parts.push(`\nHTML Source Snapshot:\n${truncateText(res.rawHtml, 45000)}`);
+    }
+    return parts.join('\n');
+  });
+
+  if (options.cloneMode) {
+    return `\n\n[WEBSITE REFERENCE DATA FETCHED FOR CLONING/REPLICATION]\nUse the fetched HTML structure, copy, styles, and layout below to build an accurate replica without omitting sections:\n\n${formattedSections.join('\n\n')}`;
+  }
+
+  return `\n\n[LIVE WEB PAGE DATA EXTRACTED FROM USER LINK(S)]\nUse the factual data below to answer the user's request accurately (summarize, analyze, extract structured fields, audit, or reference exact details as requested). Do NOT assume the user wants to clone the HTML unless they explicitly ask for code/cloning.\n\n${formattedSections.join('\n\n')}`;
+};
+
 
 export const copyToClipboard = async (text: string) => {
   try {
